@@ -320,6 +320,9 @@ export class LayerRenderer {
             for (let px = 0; px < poolDef.w; px++) {
               const srcPos = this._getPixelWorldPos(li, c, px, py);
               if (!srcPos) continue;
+              const srcDot = new THREE.Mesh(dotGeo, yellowDotMat);
+              srcDot.position.copy(srcPos);
+              group.add(srcDot);
               const contributing = this._getContributingPixels(li, c, px, py);
               for (const p of contributing) {
                 const dstPos = this._getPixelWorldPos(p.li, p.c, p.px, p.py);
@@ -328,6 +331,9 @@ export class LayerRenderer {
                   new THREE.BufferGeometry().setFromPoints([srcPos.clone(), dstPos]),
                   yellowMat
                 ));
+                const dstDot = new THREE.Mesh(dotGeo, yellowDotMat);
+                dstDot.position.copy(dstPos);
+                group.add(dstDot);
               }
             }
           }
@@ -472,12 +478,17 @@ export class LayerRenderer {
         colorAttr.setXYZ(index * 2,     1.0, 0.2, 0.2); // red
         colorAttr.setXYZ(index * 2 + 1, 1.0, 0.2, 0.2);
         if (this._rfDstDots[index]) this._rfDstDots[index].material.color.setHex(0xff3333);
-        // Tube for thickness on highlighted segment
+        // Tube for thickness on highlighted segment (inset endpoints to avoid penetrating image planes)
         const ep = this._rfLineEndpoints[index];
         if (ep && this._rfGroup) {
           const p1 = ep.src.clone();
           const p2 = ep.dst.clone();
-          if (p1.distanceTo(p2) > 0.1) {
+          const dist = p1.distanceTo(p2);
+          if (dist > 0.1) {
+            const dir = p2.clone().sub(p1).normalize();
+            const inset = Math.min(4, dist * 0.1);
+            p1.addScaledVector(dir,  inset);
+            p2.addScaledVector(dir, -inset);
             const curve   = new THREE.LineCurve3(p1, p2);
             const tubeGeo = new THREE.TubeGeometry(curve, 1, 1, 6, false);
             const tubeMat = new THREE.MeshBasicMaterial({ color: 0xff3333, transparent: true, opacity: 0.9 });
@@ -508,7 +519,12 @@ export class LayerRenderer {
       if (pos && pos.count >= 2 && this._rfGroup) {
         const p1 = new THREE.Vector3(pos.getX(0), pos.getY(0), pos.getZ(0));
         const p2 = new THREE.Vector3(pos.getX(1), pos.getY(1), pos.getZ(1));
-        if (p1.distanceTo(p2) > 0.1) {
+        const dist = p1.distanceTo(p2);
+        if (dist > 0.1) {
+          const dir = p2.clone().sub(p1).normalize();
+          const inset = Math.min(4, dist * 0.1);
+          p1.addScaledVector(dir,  inset);
+          p2.addScaledVector(dir, -inset);
           const curve   = new THREE.LineCurve3(p1, p2);
           const tubeGeo = new THREE.TubeGeometry(curve, 1, 1, 6, false);
           const tubeMat = new THREE.MeshBasicMaterial({ color: 0xff3333, transparent: true, opacity: 0.9 });
