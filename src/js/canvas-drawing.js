@@ -115,6 +115,12 @@ export class DrawingCanvas {
     return out;
   }
 
+  // Load an external ImageData (28×28) into the canvas (used by dataset browser)
+  loadImageData(imgData) {
+    this.offCtx.putImageData(imgData, 0, 0);
+    this._syncDisplay();
+  }
+
   // Returns true if the canvas has any non-zero pixels
   hasContent() {
     const pixels = this.getPixels();

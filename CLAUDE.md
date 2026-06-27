@@ -18,7 +18,10 @@ Client-side CNN visualization web app. Users draw a digit on a canvas, run brows
 | `src/js/model-configs.js` | Layer definitions and connectivity for each model |
 | `src/js/model-inference.js` | ONNX session loading and inference |
 | `src/css/style.css` | All styling |
-| `public/models/` | ONNX model files (committed to git) |
+| `src/js/dataset-configs.js` | Per-dataset normalization stats and file paths |
+| `src/js/dataset-loader.js` | Browser-side dataset binary loader |
+| `public/models/{dataset}/{arch}/` | ONNX model files organized by dataset and architecture |
+| `public/data/{dataset}/` | Binary dataset files (`{split}_images.bin`, `{split}_labels.bin`) |
 | `train/` | PyTorch training scripts |
 
 ---
@@ -71,6 +74,18 @@ This keeps `BUGS.md` current without requiring a manual "update BUGS.md" request
 
 ---
 
+## Multi-Dataset Architecture
+
+Datasets: `mnist`, `fashion_mnist`, `kuzushiji_mnist`. All use 28×28 grayscale inputs with the same 6 model architectures.
+
+- **`src/js/dataset-configs.js`** — `DATASET_CONFIGS` with `id`, `label`, `normMean`, `normStd`, `modelsPath`, `dataPath`.
+- **Model paths** resolve at runtime: `${datasetConfig.modelsPath}/${modelId}/${file}`. `model-configs.js` stores only the `file` basename (not a full path).
+- **`parametersFile`** in model config is a basename (e.g. `'parameters.json'`); full path is `${modelsBase}/${parametersFile}`.
+- **`DatasetLoader`** in `dataset-loader.js` resets cached data when `datasetConfig.id` changes.
+- **Dataset binary files**: `{split}_images.bin` / `{split}_labels.bin` — generate with `python train/export_dataset.py --dataset {id}`.
+
+---
+
 ## Adding New Models
 
 When adding a new model:
@@ -78,12 +93,12 @@ When adding a new model:
 1. **Train** using the `deep-learning` conda environment:
    ```bash
    conda activate deep-learning
-   python train/train_<modelname>.py
+   python train/train_<modelname>.py --dataset mnist
    ```
 
-2. **Export** ONNX files for each layer checkpoint (see existing `train/` scripts for pattern).
+2. **Export** ONNX files for each layer checkpoint to `public/models/mnist/<arch>/` (see existing `train/` scripts for pattern).
 
-3. **Add to `model-configs.js`**: Define `layerDefs`, `connectivity`, `modelFiles`, `totalParams`.
+3. **Add to `model-configs.js`**: Define `layerDefs`, `connectivity`, `modelFiles` (use `file` basename only), `totalParams`.
 
 4. **Add test accuracy**:
    - In `index.html`: Add to the `title` attribute of the model selection button (e.g., `title="... — 99.20% test acc"`).
@@ -108,3 +123,4 @@ When adding a new model:
 - No build step — ES modules served directly. Run `python -m http.server 8080` or any static server.
 - `.gitignore` excludes `data/`, `train/data/`, `node_modules/`, `__pycache__/`.
 - ONNX model files in `public/models/` **are** committed.
+- Dataset binaries (`public/data/`) are **not** committed (too large). Generate with `python train/export_dataset.py --dataset {id}`.

@@ -1,18 +1,22 @@
 """
-Train a CNN on MNIST and export 5 ONNX files for browser inference.
+Train a Simple CNN on MNIST/Fashion-MNIST/Kuzushiji-MNIST and export ONNX layer checkpoints.
 
-Exported models (saved to ../public/models/):
+Exported models (saved to public/models/{dataset}/v1/):
   layer0.onnx  - input → after Conv1+ReLU  (32, 28, 28)
   layer1.onnx  - input → after MaxPool1    (32, 14, 14)
   layer2.onnx  - input → after Conv2+ReLU  (64, 14, 14)
   layer3.onnx  - input → after MaxPool2    (64,  7,  7)
-  mnist-cnn.onnx - full model → softmax    (10,)
+  layer4.onnx  - input → after FC1+ReLU   (128,)
+  full.onnx    - full model → softmax      (10,)
 
 Usage:
-  pip install -r requirements.txt
-  python train_model.py
+  conda activate deep-learning
+  python train/train_v1.py --dataset mnist
+  python train/train_v1.py --dataset fashion_mnist
+  python train/train_v1.py --dataset kuzushiji_mnist
 """
 
+import argparse
 import os
 import torch
 import torch.nn as nn
@@ -21,8 +25,14 @@ from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 import numpy as np
 
-MODELS_DIR = os.path.join(os.path.dirname(__file__), '..', 'public', 'models')
-os.makedirs(MODELS_DIR, exist_ok=True)
+DATASET_MAP = {
+    'mnist':           (datasets.MNIST,        (0.1307,), (0.3081,)),
+    'fashion_mnist':   (datasets.FashionMNIST, (0.2860,), (0.3530,)),
+    'kuzushiji_mnist': (datasets.KMNIST,       (0.1918,), (0.3483,)),
+}
+
+PUBLIC_MODELS = os.path.join(os.path.dirname(__file__), '..', 'public', 'models')
+DATA_DIR      = os.path.join(os.path.dirname(__file__), 'data')
 
 
 # ── Model ──────────────────────────────────────────────────────────────────────
@@ -82,6 +92,18 @@ class UpToLayer3(nn.Module):
         x = self.pool1(self.relu1(self.conv1(x)))
         return self.pool2(self.relu2(self.conv2(x)))
 
+class UpToLayer4(nn.Module):
+    def __init__(self, m):
+        super().__init__()
+        self.conv1 = m.conv1; self.relu1 = m.relu1; self.pool1 = m.pool1
+        self.conv2 = m.conv2; self.relu2 = m.relu2; self.pool2 = m.pool2
+        self.fc1 = m.fc1; self.relu3 = m.relu3
+    def forward(self, x):
+        x = self.pool1(self.relu1(self.conv1(x)))
+        x = self.pool2(self.relu2(self.conv2(x)))
+        x = x.flatten(1)
+        return self.relu3(self.fc1(x))
+
 class FullWithSoftmax(nn.Module):
     def __init__(self, m):
         super().__init__()
@@ -98,17 +120,18 @@ class FullWithSoftmax(nn.Module):
 
 # ── Training ───────────────────────────────────────────────────────────────────
 
-def train():
+def train(dataset_id='mnist'):
+    ds_class, norm_mean, norm_std = DATASET_MAP[dataset_id]
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f'Using device: {device}')
+    print(f'Using device: {device}  dataset: {dataset_id}')
 
     transform = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Normalize((0.1307,), (0.3081,))
+        transforms.Normalize(norm_mean, norm_std)
     ])
 
-    train_ds = datasets.MNIST('./data', train=True,  download=True, transform=transform)
-    test_ds  = datasets.MNIST('./data', train=False, download=True, transform=transform)
+    train_ds = ds_class(DATA_DIR, train=True,  download=True, transform=transform)
+    test_ds  = ds_class(DATA_DIR, train=False, download=True, transform=transform)
     train_dl = DataLoader(train_ds, batch_size=128, shuffle=True,  num_workers=0)
     test_dl  = DataLoader(test_ds,  batch_size=256, shuffle=False, num_workers=0)
 
@@ -163,7 +186,14 @@ def validate_onnx(path):
 
 
 def main():
-    model = train()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dataset', default='mnist', choices=list(DATASET_MAP.keys()))
+    args = parser.parse_args()
+
+    models_dir = os.path.join(PUBLIC_MODELS, args.dataset, 'v1')
+    os.makedirs(models_dir, exist_ok=True)
+
+    model = train(args.dataset)
     model.cpu().eval()
 
     print('\nModel summary (torchinfo):')
@@ -173,20 +203,21 @@ def main():
     except ImportError:
         print('  torchinfo not installed — run: pip install torchinfo')
 
-    print('\nExporting ONNX models...')
+    print(f'\nExporting ONNX models (v1 / {args.dataset})...')
     exports = [
-        (UpToLayer0(model),     'layer0.onnx'),
-        (UpToLayer1(model),     'layer1.onnx'),
-        (UpToLayer2(model),     'layer2.onnx'),
-        (UpToLayer3(model),     'layer3.onnx'),
-        (FullWithSoftmax(model),'mnist-cnn.onnx'),
+        (UpToLayer0(model),      'layer0.onnx', (1, 32, 28, 28)),
+        (UpToLayer1(model),      'layer1.onnx', (1, 32, 14, 14)),
+        (UpToLayer2(model),      'layer2.onnx', (1, 64, 14, 14)),
+        (UpToLayer3(model),      'layer3.onnx', (1, 64,  7,  7)),
+        (UpToLayer4(model),      'layer4.onnx', (1, 128)),
+        (FullWithSoftmax(model), 'full.onnx',   (1, 10)),
     ]
-    for submodel, name in exports:
-        path = os.path.join(MODELS_DIR, name)
+    for submodel, name, expected in exports:
+        path = os.path.join(models_dir, name)
         export_onnx(submodel, path)
         validate_onnx(path)
 
-    print('\nAll models exported successfully.')
+    print('\nAll v1 models exported successfully.')
 
 
 if __name__ == '__main__':

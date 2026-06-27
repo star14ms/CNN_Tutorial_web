@@ -13,10 +13,13 @@ Architecture:
   FC(512→10) + Softmax                              → (10,)          [full]
 
 Usage:
-  pip install torch torchvision onnx onnxruntime
-  python train_model_v2.py
+  conda activate deep-learning
+  python train/train_v2.py --dataset mnist
+  python train/train_v2.py --dataset fashion_mnist
+  python train/train_v2.py --dataset kuzushiji_mnist
 """
 
+import argparse
 import os
 import torch
 import torch.nn as nn
@@ -25,8 +28,14 @@ from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 import numpy as np
 
-MODELS_DIR = os.path.join(os.path.dirname(__file__), '..', 'public', 'models')
-os.makedirs(MODELS_DIR, exist_ok=True)
+DATASET_MAP = {
+    'mnist':           (datasets.MNIST,        (0.1307,), (0.3081,)),
+    'fashion_mnist':   (datasets.FashionMNIST, (0.2860,), (0.3530,)),
+    'kuzushiji_mnist': (datasets.KMNIST,       (0.1918,), (0.3483,)),
+}
+
+PUBLIC_MODELS = os.path.join(os.path.dirname(__file__), '..', 'public', 'models')
+DATA_DIR      = os.path.join(os.path.dirname(__file__), 'data')
 
 
 # ── Model ──────────────────────────────────────────────────────────────────────
@@ -175,14 +184,14 @@ class V2FullWithSoftmax(nn.Module):
 
 # ── Training ───────────────────────────────────────────────────────────────────
 
-def train():
+def train(dataset_id='mnist'):
     if torch.cuda.is_available():
         device = torch.device('cuda')
     elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
         device = torch.device('mps')
     else:
         device = torch.device('cpu')
-    print(f'Using device: {device}')
+    print(f'Using device: {device}  dataset: {dataset_id}')
 
     if device.type == 'cuda':
         # Prevent cuDNN from auto-selecting algorithms that can cause
@@ -190,12 +199,13 @@ def train():
         torch.backends.cudnn.benchmark = False
         torch.backends.cudnn.deterministic = True
 
+    ds_class, norm_mean, norm_std = DATASET_MAP[dataset_id]
     transform = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Normalize((0.1307,), (0.3081,))
+        transforms.Normalize(norm_mean, norm_std)
     ])
-    train_ds = datasets.MNIST('./data', train=True,  download=True, transform=transform)
-    test_ds  = datasets.MNIST('./data', train=False, download=True, transform=transform)
+    train_ds = ds_class(DATA_DIR, train=True,  download=True, transform=transform)
+    test_ds  = ds_class(DATA_DIR, train=False, download=True, transform=transform)
     pin = device.type == 'cuda'
     train_dl = DataLoader(train_ds, batch_size=128, shuffle=True,  num_workers=0, pin_memory=pin)
     test_dl  = DataLoader(test_ds,  batch_size=256, shuffle=False, num_workers=0, pin_memory=pin)
@@ -266,7 +276,14 @@ def validate_onnx(path, expected_shape):
 
 
 def main():
-    model = train()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dataset', default='mnist', choices=list(DATASET_MAP.keys()))
+    args = parser.parse_args()
+
+    models_dir = os.path.join(PUBLIC_MODELS, args.dataset, 'v2')
+    os.makedirs(models_dir, exist_ok=True)
+
+    model = train(args.dataset)
     model.cpu().eval()
 
     print('\nModel summary (torchinfo):')
@@ -276,19 +293,19 @@ def main():
     except ImportError:
         print('  torchinfo not installed — run: pip install torchinfo')
 
-    print('\nExporting ONNX models (v2)...')
+    print(f'\nExporting ONNX models (v2 / {args.dataset})...')
     exports = [
-        (V2UpToLayer0(model),     'v2_layer0.onnx',         (1, 32, 28, 28)),
-        (V2UpToLayer1Conv(model), 'v2_layer1_conv.onnx',    (1, 32, 28, 28)),
-        (V2UpToLayer1(model),     'v2_layer1.onnx',         (1, 32, 14, 14)),
-        (V2UpToLayer2(model),     'v2_layer2.onnx',         (1, 64, 14, 14)),
-        (V2UpToLayer3Conv(model), 'v2_layer3_conv.onnx',    (1, 64, 14, 14)),
-        (V2UpToLayer3(model),     'v2_layer3.onnx',         (1, 64,  7,  7)),
-        (V2UpToLayer4(model),     'v2_layer4.onnx',         (1, 512)),
-        (V2FullWithSoftmax(model),'v2_mnist-cnn.onnx',      (1, 10)),
+        (V2UpToLayer0(model),      'layer0.onnx',      (1, 32, 28, 28)),
+        (V2UpToLayer1Conv(model),  'layer1_conv.onnx', (1, 32, 28, 28)),
+        (V2UpToLayer1(model),      'layer1.onnx',      (1, 32, 14, 14)),
+        (V2UpToLayer2(model),      'layer2.onnx',      (1, 64, 14, 14)),
+        (V2UpToLayer3Conv(model),  'layer3_conv.onnx', (1, 64, 14, 14)),
+        (V2UpToLayer3(model),      'layer3.onnx',      (1, 64,  7,  7)),
+        (V2UpToLayer4(model),      'layer4.onnx',      (1, 512)),
+        (V2FullWithSoftmax(model), 'full.onnx',        (1, 10)),
     ]
     for submodel, name, expected in exports:
-        path = os.path.join(MODELS_DIR, name)
+        path = os.path.join(models_dir, name)
         export_onnx(submodel, path)
         validate_onnx(path, expected)
 

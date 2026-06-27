@@ -4,6 +4,8 @@ import { Visualization }  from './visualization.js';
 import { CameraController, PixelPicker, PixelHover } from './interaction.js';
 import { debounce } from './utils.js';
 import { MODEL_CONFIGS, DEFAULT_MODEL_ID } from './model-configs.js';
+import { DATASET_CONFIGS, DEFAULT_DATASET_ID } from './dataset-configs.js';
+import { DatasetLoader } from './dataset-loader.js';
 
 const $ = id => document.getElementById(id);
 
@@ -26,10 +28,11 @@ async function main() {
   const speedWrap     = $('anim-speed-wrap');
   const speedSlider   = $('anim-speed');
 
-  let animMode       = false;
-  let lastResult     = null;
-  let lastPixels     = null;
-  let currentModelId = DEFAULT_MODEL_ID;
+  let animMode        = false;
+  let lastResult      = null;
+  let lastPixels      = null;
+  let currentModelId  = DEFAULT_MODEL_ID;
+  let currentDatasetId = DEFAULT_DATASET_ID;
   let _formulaTimer  = null;
   let _animStep      = 0;
   let _animContrib   = null;
@@ -112,7 +115,7 @@ async function main() {
     progressEl.style.width = '0%';
 
     try {
-      await model.load(config, (ratio, msg) => {
+      await model.load(config, DATASET_CONFIGS[currentDatasetId], (ratio, msg) => {
         statusEl.textContent = msg;
         progressEl.style.width = (ratio * 100) + '%';
       });
@@ -127,7 +130,6 @@ async function main() {
 
     rebuildLayerModal(config);
     viz.setModelConfig(config);
-    await model.loadParameters(config.parametersFile);
     viz.setParameters(model.parameters);
     lastResult = null;
     lastPixels = null;
@@ -155,13 +157,23 @@ async function main() {
   }
 
   function rebuildLayerModal(config) {
-    // Update header with total param count
+    // Update header with total param count + torchinfo stats
     const header = $('layer-modal').querySelector('.layer-modal-header');
     if (header) {
       const total = config.totalParams != null
         ? ` <span class="lmi-total">${config.totalParams.toLocaleString()} params</span>`
         : '';
-      header.innerHTML = `Layers${total}`;
+      let statsHtml = '';
+      if (config.torchinfo) {
+        const t = config.torchinfo;
+        statsHtml = `<div class="lmi-torchinfo">`
+          + (t.multAddsM    != null ? `<span>Mult-Adds: ${t.multAddsM.toFixed(2)} M</span>` : '')
+          + (t.paramsSizeMB != null ? `<span>Params: ${t.paramsSizeMB.toFixed(2)} MB</span>` : '')
+          + (t.fwdBwdSizeMB != null ? `<span>Fwd/Bwd: ${t.fwdBwdSizeMB.toFixed(2)} MB</span>` : '')
+          + (t.totalSizeMB  != null ? `<span>Total: ${t.totalSizeMB.toFixed(2)} MB</span>` : '')
+          + `</div>`;
+      }
+      header.innerHTML = `Layers${total}${statsHtml}`;
     }
 
     layerModalList.innerHTML = '';
@@ -258,6 +270,20 @@ async function main() {
     setActiveLayer(null);
     _selectedPixel = null;
     renderEmpty();
+  });
+
+  // ── Dataset selector ───────────────────────────────────────────────────────
+  document.querySelectorAll('.dataset-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const dsId = btn.dataset.dataset;
+      if (dsId === currentDatasetId || btn.disabled) return;
+      currentDatasetId = dsId;
+      document.querySelectorAll('.dataset-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.dataset === dsId));
+      dataset.reset();
+      drawing.clear();
+      await loadModel(currentModelId);
+    });
   });
 
   // ── Model selector ─────────────────────────────────────────────────────────
@@ -634,6 +660,157 @@ async function main() {
       confBarsEl.appendChild(row);
     });
   }
+
+  // ── Dataset browser ────────────────────────────────────────────────────────
+  const dataset = new DatasetLoader();
+
+  let _dsMode    = 'draw';   // 'draw' | 'dataset'
+  let _dsSplit   = 'test';
+  let _dsFilter  = 'all';
+
+  const dsSection    = $('dataset-section');
+  const dsIndexInput = $('ds-index');
+  const dsLoadBtn    = $('ds-load');
+  const dsRandomBtn  = $('ds-random');
+  const dsStatus     = $('ds-status');
+  const dsTrueLabel  = $('ds-true-label');
+  const dsDigitSel   = $('ds-digit');
+  const drawCanvas   = $('draw-canvas');
+
+  function setDsStatus(msg) { dsStatus.textContent = msg; }
+
+  function showTrueLabel(idx, split) {
+    const lbl = dataset.getLabel(split, idx);
+    if (lbl !== null) {
+      dsTrueLabel.textContent = `True label: ${lbl}`;
+      dsTrueLabel.style.display = 'block';
+    } else {
+      dsTrueLabel.style.display = 'none';
+    }
+  }
+
+  async function loadAndInferDataset(split, index) {
+    if (!dataset.isLoaded(split)) {
+      setDsStatus(`Loading ${split} set…`);
+      try { await dataset.load(split, DATASET_CONFIGS[currentDatasetId]); }
+      catch (e) {
+        setDsStatus(`Error: run: python train/export_dataset.py --dataset ${currentDatasetId}`);
+        return;
+      }
+    }
+    const n = dataset.size(split);
+    if (index < 0 || index >= n) {
+      setDsStatus(`Index out of range (0–${n - 1})`);
+      return;
+    }
+    const pixels = dataset.getImage(split, index);
+    showTrueLabel(index, split);
+    setDsStatus(`${split} #${index}`);
+
+    // Paint the dataset image onto the draw canvas for visual feedback
+    const imgData = new ImageData(28, 28);
+    for (let i = 0; i < 784; i++) {
+      const v = Math.round(pixels[i] * 255);
+      imgData.data[i * 4]     = v;
+      imgData.data[i * 4 + 1] = v;
+      imgData.data[i * 4 + 2] = v;
+      imgData.data[i * 4 + 3] = 255;
+    }
+    drawing.loadImageData(imgData);
+
+    lastPixels = pixels;
+    try {
+      const result = await model.inferAllLayers(pixels);
+      lastResult = result;
+      viz.update(result, pixels, false);
+      showPrediction(result.output.data);
+      if (_selectedPixel) {
+        const { layerIdx, channel, x, y } = _selectedPixel;
+        const freshInfo = viz.getPixelInfo(layerIdx, channel, x, y);
+        if (freshInfo) { stopFormulaAnim(); triggerPixelSelection(freshInfo); }
+      } else if (_activeLayerLi !== null) {
+        viz.showLayerConnections(_activeLayerLi);
+      }
+    } catch (err) { console.error('Inference error:', err); }
+  }
+
+  // Mode toggle (Draw / Dataset)
+  document.querySelectorAll('[data-mode]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _dsMode = btn.dataset.mode;
+      document.querySelectorAll('[data-mode]').forEach(b =>
+        b.classList.toggle('active', b.dataset.mode === _dsMode));
+      drawCanvas.style.display     = _dsMode === 'draw'    ? 'block' : 'none';
+      clearBtn.style.display       = _dsMode === 'draw'    ? '' : 'none';
+      dsSection.style.display      = _dsMode === 'dataset' ? 'flex' : 'none';
+      dsTrueLabel.style.display    = 'none';
+      if (_dsMode === 'draw') setDsStatus('');
+    });
+  });
+
+  // Split toggle (Test / Train)
+  document.querySelectorAll('[data-split]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _dsSplit = btn.dataset.split;
+      document.querySelectorAll('[data-split]').forEach(b =>
+        b.classList.toggle('active', b.dataset.split === _dsSplit));
+      dsTrueLabel.style.display = 'none';
+    });
+  });
+
+  // Filter toggle (Any / Correct / Wrong)
+  document.querySelectorAll('[data-filter]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _dsFilter = btn.dataset.filter;
+      document.querySelectorAll('[data-filter]').forEach(b =>
+        b.classList.toggle('active', b.dataset.filter === _dsFilter));
+    });
+  });
+
+  // Load by index
+  dsLoadBtn.addEventListener('click', async () => {
+    const idx = parseInt(dsIndexInput.value, 10);
+    if (isNaN(idx)) { setDsStatus('Enter a valid index'); return; }
+    await loadAndInferDataset(_dsSplit, idx);
+  });
+  dsIndexInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') dsLoadBtn.click();
+  });
+
+  // Random sample
+  dsRandomBtn.addEventListener('click', async () => {
+    const digit  = dsDigitSel.value === '' ? null : parseInt(dsDigitSel.value, 10);
+    const filter = _dsFilter;
+
+    if (!dataset.isLoaded(_dsSplit)) {
+      setDsStatus(`Loading ${_dsSplit} set…`);
+      try { await dataset.load(_dsSplit, DATASET_CONFIGS[currentDatasetId]); }
+      catch (e) { setDsStatus(`Error: run: python train/export_dataset.py --dataset ${currentDatasetId}`); return; }
+    }
+
+    // TP/FP filtering needs predictions cached
+    if ((filter === 'correct' || filter === 'incorrect') && _dsSplit === 'test') {
+      if (!dataset.hasPredictions(currentModelId)) {
+        setDsStatus('Computing predictions (10k images)…');
+        await dataset.computeTestPredictions(currentModelId,
+          async (pixels) => {
+            const result = await model.inferAllLayers(pixels);
+            const probs  = Array.from(result.output.data);
+            return probs.indexOf(Math.max(...probs));
+          },
+          (done, total) => setDsStatus(`Computing… ${done}/${total}`)
+        );
+      }
+    }
+
+    const sample = dataset.randomSample(_dsSplit, filter, digit, currentModelId);
+    if (!sample) {
+      setDsStatus('No matching samples found');
+      return;
+    }
+    dsIndexInput.value = sample.index;
+    await loadAndInferDataset(_dsSplit, sample.index);
+  });
 
   // ── Initial model load ─────────────────────────────────────────────────────
   await loadModel(DEFAULT_MODEL_ID);

@@ -913,7 +913,7 @@ export class LayerRenderer {
     const ip = this._inputPixels;
     return this._layerDefs.map((def, li) => {
       let data;
-      if (li === 0) {
+      if (li === 0 || def.dataKey === '__input__') {
         data = ip;
       } else if (def.dataKey) {
         data = ld?.[def.dataKey]?.data;

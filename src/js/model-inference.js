@@ -4,20 +4,26 @@ export class ModelInference {
     this.ready      = false;
     this._modelConfig = null;
     this.parameters  = null;
+    this._normMean   = 0.1307;
+    this._normStd    = 0.3081;
   }
 
-  async load(modelConfig, onProgress) {
+  async load(modelConfig, datasetConfig, onProgress) {
     this._modelConfig = modelConfig;
     this.sessions     = {};
     this.ready        = false;
+    this._normMean    = datasetConfig.normMean;
+    this._normStd     = datasetConfig.normStd;
 
     const ort = window.ort;
     ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/';
     ort.env.wasm.numThreads = 1;
 
+    const modelsBase = `${datasetConfig.modelsPath}/${modelConfig.id}`;
     const files = modelConfig.modelFiles;
     for (let i = 0; i < files.length; i++) {
-      const { name, path } = files[i];
+      const { name, file } = files[i];
+      const path = `${modelsBase}/${file}`;
       onProgress?.(i / files.length, `Loading ${modelConfig.label} — ${name}…`);
       try {
         this.sessions[name] = await ort.InferenceSession.create(path, {
@@ -28,12 +34,18 @@ export class ModelInference {
         throw new Error(`Could not load "${name}" for ${modelConfig.label}. Run the training script first.`);
       }
     }
+
+    if (modelConfig.parametersFile) {
+      await this._loadParameters(`${modelsBase}/${modelConfig.parametersFile}`);
+    } else {
+      this.parameters = null;
+    }
+
     onProgress?.(1, 'Models ready');
     this.ready = true;
   }
 
-  async loadParameters(path) {
-    if (!path) return;
+  async _loadParameters(path) {
     try {
       const resp = await fetch(path);
       this.parameters = await resp.json();
@@ -47,9 +59,8 @@ export class ModelInference {
     if (!this.ready) throw new Error('Models not loaded');
     const ort = window.ort;
 
-    // MNIST normalization: (pixel − 0.1307) / 0.3081
     const normalized = new Float32Array(784);
-    for (let i = 0; i < 784; i++) normalized[i] = (pixels784[i] - 0.1307) / 0.3081;
+    for (let i = 0; i < 784; i++) normalized[i] = (pixels784[i] - this._normMean) / this._normStd;
 
     const input = new ort.Tensor('float32', normalized, [1, 1, 28, 28]);
     const run   = async (name) => {

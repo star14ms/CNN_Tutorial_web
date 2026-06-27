@@ -19,16 +19,56 @@
 <body>
 
 <header>
-  <h1>CNN Visualization — MNIST</h1>
+  <h1>CNN Visualization</h1>
   <span class="subtitle">Client-side inference &amp; 3D layer visualization</span>
+  <nav class="dataset-nav">
+    <button class="btn dataset-btn active" data-dataset="mnist">MNIST</button>
+    <button class="btn dataset-btn" data-dataset="fashion_mnist" disabled title="Coming soon">Fashion-MNIST</button>
+    <button class="btn dataset-btn" data-dataset="kuzushiji_mnist" disabled title="Coming soon">Kuzushiji-MNIST</button>
+  </nav>
 </header>
 
 <div class="main-layout">
   <!-- Left: drawing + prediction -->
   <aside class="left-panel">
     <h3>Input</h3>
+    <div class="input-mode-row">
+      <button class="btn btn-xs active" id="mode-draw" data-mode="draw">Draw</button>
+      <button class="btn btn-xs" id="mode-dataset" data-mode="dataset">Dataset</button>
+    </div>
     <canvas id="draw-canvas" width="28" height="28"></canvas>
     <button id="clear-btn" class="btn btn-secondary">Clear</button>
+
+    <!-- Dataset browser (shown when mode=dataset) -->
+    <div id="dataset-section" style="display:none">
+      <div class="ds-split-row">
+        <button class="btn btn-xs active" data-split="test">Test</button>
+        <button class="btn btn-xs" data-split="train">Train</button>
+      </div>
+      <div class="ds-index-row">
+        <input type="number" id="ds-index" class="ds-input" min="0" placeholder="Index" />
+        <button id="ds-load" class="btn btn-xs btn-primary">Load</button>
+      </div>
+      <div class="ds-divider"></div>
+      <div class="ds-row-label">Random</div>
+      <div class="ds-filter-row">
+        <button class="btn btn-xs active" data-filter="all">Any</button>
+        <button class="btn btn-xs" data-filter="correct">Correct</button>
+        <button class="btn btn-xs" data-filter="incorrect">Wrong</button>
+      </div>
+      <div class="ds-digit-row">
+        <span class="ds-muted">Digit</span>
+        <select id="ds-digit" class="ds-select">
+          <option value="">All</option>
+          <option>0</option><option>1</option><option>2</option>
+          <option>3</option><option>4</option><option>5</option>
+          <option>6</option><option>7</option><option>8</option><option>9</option>
+        </select>
+      </div>
+      <button id="ds-random" class="btn btn-secondary full-width">Random Sample</button>
+      <div id="ds-status" class="ds-status"></div>
+      <div id="ds-true-label" class="ds-true-label" style="display:none"></div>
+    </div>
 
     <div class="prediction-box">
       <div class="pred-label">Predicted digit</div>
@@ -40,8 +80,17 @@
 
     <h3>Model</h3>
     <div id="model-selector">
+      <div class="model-group-label">Linear</div>
+      <button class="btn model-btn" data-model-id="linear" title="Linear(784→512→10) — 98.59% test acc">Linear</button>
+
+      <div class="model-group-label">CNN</div>
       <button class="btn model-btn active" data-model-id="v1" title="2 Conv + MaxPool + FC(128) — 99.20% test acc">Simple CNN</button>
-      <button class="btn model-btn" data-model-id="v2" title="4 Conv + MaxPool + BatchNorm +Dropout + FC(512) - 99.61% test acc">Deep CNN + BN + Dropout</button>
+      <button class="btn model-btn" data-model-id="v1bn" title="2 Conv + MaxPool + BatchNorm + Dropout + FC(128) — 99.30% test acc">Simple CNN + BN</button>
+      <button class="btn model-btn" data-model-id="v2small" title="4 Conv + MaxPool + BatchNorm + Dropout + FC(256) — 99.56% test acc">Deep CNN (small)</button>
+      <button class="btn model-btn" data-model-id="v2" title="4 Conv + MaxPool + BatchNorm + Dropout + FC(512) — 99.61% test acc">Deep CNN + BN</button>
+
+      <div class="model-group-label">Transformer</div>
+      <button class="btn model-btn" data-model-id="vit" title="ViT (patch=4, embed=128, 4 blocks, 8 heads) — 97.79% test acc">Vision Transformer</button>
     </div>
 
     <h3>Controls</h3>
