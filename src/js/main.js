@@ -440,6 +440,8 @@ async function main() {
 
     html += `</div>`;
     detailContent.innerHTML = html;
+    const termsList = detailContent.querySelector('.dp-terms-list');
+    if (termsList) termsList.scrollTop = termsList.scrollHeight;
 
     if (!done && prevValues.length > 0) {
       const pct = Math.round((shownCount / prevValues.length) * 100);

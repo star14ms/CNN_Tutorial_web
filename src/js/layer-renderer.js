@@ -24,6 +24,7 @@ export class LayerRenderer {
     this._rfLineCount     = 0;
     this._rfLineEndpoints = [];
     this._rfSrcDot        = null; // Source pixel dot (for color change on highlight)
+    this._rfDstDots       = [];   // Destination pixel dots indexed by line order
     this._highlightTube   = null;
     this._animTimer       = null;
     this._hoverLine     = null;
@@ -158,7 +159,8 @@ export class LayerRenderer {
     group.add(srcDot);
     this._rfSrcDot = srcDot;
 
-    this._rfLines = [];
+    this._rfLines   = [];
+    this._rfDstDots = [];
     if (contributing.length > 0) {
       for (const p of contributing) {
         const dstPos = this._getPixelWorldPos(p.li, p.c, p.px, p.py);
@@ -170,6 +172,7 @@ export class LayerRenderer {
         const dot = new THREE.Mesh(new THREE.SphereGeometry(0.5, 6, 6), new THREE.MeshBasicMaterial({ color: 0xffdd44 }));
         dot.position.copy(dstPos);
         group.add(dot);
+        this._rfDstDots.push(dot);
       }
     }
 
@@ -212,7 +215,8 @@ export class LayerRenderer {
     this.scene.add(group);
     this._rfGroup  = group;
     this._rfSrcPos = srcPos;
-    this._rfLines  = [];
+    this._rfLines   = [];
+    this._rfDstDots = [];
 
     const contributing = this._getContributingPixels(li, c, px, py);
     return { contributing, detail: this._buildDetailInfo(li, c, px, py, rawData, contributing) };
@@ -253,6 +257,7 @@ export class LayerRenderer {
         const dot = new THREE.Mesh(new THREE.SphereGeometry(0.5, 6, 6), new THREE.MeshBasicMaterial({ color: 0xffdd44 }));
         dot.position.copy(dstPos);
         if (this._rfGroup) this._rfGroup.add(dot);
+        this._rfDstDots[lineIdx] = dot;
       }
     };
     requestAnimationFrame(tick);
@@ -268,11 +273,16 @@ export class LayerRenderer {
     }
     const def   = this._layerDefs[li];
     const group = new THREE.Group();
-    const lineMat = new THREE.LineBasicMaterial({ color: 0x66aaff, transparent: true, opacity: 0.45 });
-    const dotMat  = new THREE.MeshBasicMaterial({ color: 0x66aaff });
-    const dotGeo  = new THREE.SphereGeometry(0.5, 6, 6);
+    const dotGeo      = new THREE.SphereGeometry(0.5, 6, 6);
+    const cornerMat   = new THREE.LineBasicMaterial({ color: 0x66aaff, transparent: true, opacity: 0.45 });
+    const cornerDotMat = new THREE.MeshBasicMaterial({ color: 0x66aaff });
+    const yellowMat   = new THREE.LineBasicMaterial({ color: 0xffdd44, transparent: true, opacity: 0.35 });
+    const yellowDotMat = new THREE.MeshBasicMaterial({ color: 0xffdd44 });
+    // Non-pool layer connection lines use yellow to match individual-pixel selection color
+    const lineMat = new THREE.LineBasicMaterial({ color: 0xffdd44, transparent: true, opacity: 0.45 });
+    const dotMat  = new THREE.MeshBasicMaterial({ color: 0xffdd44 });
 
-    // Pool layers: draw 4 corner-to-corner lines between the two cluster bounding boxes
+    // Pool layers: draw 4 corner-to-corner lines (blue) + per-pixel lines (yellow)
     if (conn.type === 'pool') {
       const curGroup  = this.groups[li];
       const prevGroup = this.groups[conn.prevLi];
@@ -293,14 +303,34 @@ export class LayerRenderer {
           new THREE.Vector3(pp.x + pW, pp.y, pp.z + pD),
           new THREE.Vector3(pp.x,      pp.y, pp.z + pD),
         ];
+        // Blue corner lines
         for (let i = 0; i < 4; i++) {
           group.add(new THREE.Line(
             new THREE.BufferGeometry().setFromPoints([curCorners[i], prevCorners[i]]),
-            lineMat
+            cornerMat
           ));
-          const d1 = new THREE.Mesh(dotGeo, dotMat); d1.position.copy(curCorners[i]);
-          const d2 = new THREE.Mesh(dotGeo, dotMat); d2.position.copy(prevCorners[i]);
+          const d1 = new THREE.Mesh(dotGeo, cornerDotMat); d1.position.copy(curCorners[i]);
+          const d2 = new THREE.Mesh(dotGeo, cornerDotMat); d2.position.copy(prevCorners[i]);
           group.add(d1); group.add(d2);
+        }
+        // Yellow per-pixel lines: every pixel in pool layer → its source pixels in prev layer
+        const poolDef = this._layerDefs[li];
+        for (let c = 0; c < poolDef.channels; c++) {
+          for (let py = 0; py < poolDef.h; py++) {
+            for (let px = 0; px < poolDef.w; px++) {
+              const srcPos = this._getPixelWorldPos(li, c, px, py);
+              if (!srcPos) continue;
+              const contributing = this._getContributingPixels(li, c, px, py);
+              for (const p of contributing) {
+                const dstPos = this._getPixelWorldPos(p.li, p.c, p.px, p.py);
+                if (!dstPos) continue;
+                group.add(new THREE.Line(
+                  new THREE.BufferGeometry().setFromPoints([srcPos.clone(), dstPos]),
+                  yellowMat
+                ));
+              }
+            }
+          }
         }
       }
       this.scene.add(group);
@@ -436,9 +466,12 @@ export class LayerRenderer {
         colorAttr.setXYZ(i, 1.0, 0.867, 0.267); // yellow
       }
       if (this._rfSrcDot) this._rfSrcDot.material.color.setHex(index >= 0 ? 0xff3333 : 0xffdd44);
+      // Reset all dst dots to yellow
+      for (const d of this._rfDstDots) if (d) d.material.color.setHex(0xffdd44);
       if (index >= 0 && index < n) {
         colorAttr.setXYZ(index * 2,     1.0, 0.2, 0.2); // red
         colorAttr.setXYZ(index * 2 + 1, 1.0, 0.2, 0.2);
+        if (this._rfDstDots[index]) this._rfDstDots[index].material.color.setHex(0xff3333);
         // Tube for thickness on highlighted segment
         const ep = this._rfLineEndpoints[index];
         if (ep && this._rfGroup) {
@@ -459,6 +492,7 @@ export class LayerRenderer {
 
     // Static path: individual line materials
     if (this._rfSrcDot) this._rfSrcDot.material.color.setHex(index >= 0 ? 0xff3333 : 0xffdd44);
+    for (const d of this._rfDstDots) if (d) d.material.color.setHex(0xffdd44);
     for (const line of this._rfLines) {
       line.material.color.setHex(0xffdd44);
       line.material.opacity = 0.7;
@@ -468,6 +502,7 @@ export class LayerRenderer {
       this._rfLines[index].material.color.setHex(0xff3333);
       this._rfLines[index].material.opacity = 1.0;
       this._rfLines[index].material.needsUpdate = true;
+      if (this._rfDstDots[index]) this._rfDstDots[index].material.color.setHex(0xff3333);
 
       const pos = this._rfLines[index].geometry.attributes.position;
       if (pos && pos.count >= 2 && this._rfGroup) {
@@ -777,6 +812,7 @@ export class LayerRenderer {
     this._rfLineCount     = 0;
     this._rfLineEndpoints = [];
     this._rfSrcDot        = null;
+    this._rfDstDots       = [];
     if (this._highlightTube) {
       this._highlightTube.geometry.dispose();
       this._highlightTube.material.dispose();
