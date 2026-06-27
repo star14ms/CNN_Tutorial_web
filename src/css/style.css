@@ -309,12 +309,27 @@ header .subtitle { font-size: 0.78rem; color: var(--muted); }
   border-radius: 6px;
   padding: 10px 8px;
   overflow-x: auto;
+  max-height: 280px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(240, 192, 64, 0.3) transparent;
+}
+.dp-formula-sub::-webkit-scrollbar {
+  width: 4px;
+}
+.dp-formula-sub::-webkit-scrollbar-track {
+  background: transparent;
+}
+.dp-formula-sub::-webkit-scrollbar-thumb {
+  background: rgba(240, 192, 64, 0.3);
+  border-radius: 2px;
+}
+.dp-formula-sub::-webkit-scrollbar-thumb:hover {
+  background: rgba(240, 192, 64, 0.6);
 }
 
 /* Term-by-term formula list */
 .dp-terms-list {
-  max-height: 280px;
-  overflow-y: auto;
   text-align: left;
   margin: 4px 0;
 }
@@ -338,6 +353,111 @@ header .subtitle { font-size: 0.78rem; color: var(--muted); }
 .dp-term.dp-result       { color: var(--green); font-weight: 600; cursor: default; }
 .dp-term.dp-muted        { color: var(--muted); cursor: default; }
 .dp-term-placeholder     { text-align: center; color: var(--muted); padding: 8px; }
+
+/* View mode toggle */
+.dp-view-toggle {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.dp-toggle-btn {
+  padding: 2px 10px;
+  font-size: 0.70rem;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.dp-toggle-btn.active {
+  background: rgba(42,42,74,0.8);
+  color: var(--yellow);
+  border-color: var(--yellow);
+}
+.dp-toggle-btn:hover:not(.active) {
+  background: rgba(42,42,74,0.4);
+  color: var(--text);
+}
+
+/* Matrix view */
+.dp-mat-channel-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+}
+.dp-mat-ch-label {
+  font-size: 0.72rem;
+  color: var(--muted);
+  min-width: 30px;
+  flex-shrink: 0;
+}
+.dp-mat-wrap {
+  display: flex;
+  align-items: stretch;
+  flex-shrink: 0;
+}
+.dp-mat-brace {
+  width: 5px;
+  border-top: 1.5px solid rgba(220,229,240,0.45);
+  border-bottom: 1.5px solid rgba(220,229,240,0.45);
+}
+.dp-mat-brace-l {
+  border-left: 1.5px solid rgba(220,229,240,0.45);
+  margin-right: 3px;
+  border-radius: 2px 0 0 2px;
+}
+.dp-mat-brace-r {
+  border-right: 1.5px solid rgba(220,229,240,0.45);
+  margin-left: 3px;
+  border-radius: 0 2px 2px 0;
+}
+.dp-mat-grid {
+  display: grid;
+  gap: 1px 3px;
+  align-items: center;
+}
+.dp-mat-fc-col {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.dp-mat-cell {
+  text-align: center;
+  white-space: nowrap;
+  line-height: 1.35;
+  padding: 1px 3px;
+  border-radius: 3px;
+}
+.dp-mat-op {
+  color: var(--muted);
+  font-size: 0.90rem;
+  flex-shrink: 0;
+  align-self: center;
+  padding: 0 2px;
+}
+.dp-mat-plus {
+  color: var(--muted);
+  font-size: 0.90rem;
+  align-self: center;
+}
+.dp-mat-fc-pair {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.dp-mat-dim {
+  opacity: 0.35;
+}
+.dp-mat-result {
+  margin-top: 6px;
+  color: var(--green);
+  font-weight: 600;
+  font-size: 0.85rem;
+}
 
 /* KaTeX overrides for dark theme */
 .katex { color: #dce5f0; font-size: 1.05em; }

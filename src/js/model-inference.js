@@ -3,6 +3,7 @@ export class ModelInference {
     this.sessions   = {};
     this.ready      = false;
     this._modelConfig = null;
+    this.parameters  = null;
   }
 
   async load(modelConfig, onProgress) {
@@ -29,6 +30,17 @@ export class ModelInference {
     }
     onProgress?.(1, 'Models ready');
     this.ready = true;
+  }
+
+  async loadParameters(path) {
+    if (!path) return;
+    try {
+      const resp = await fetch(path);
+      this.parameters = await resp.json();
+    } catch (e) {
+      console.warn('Parameters not loaded:', e);
+      this.parameters = null;
+    }
   }
 
   async inferAllLayers(pixels784) {

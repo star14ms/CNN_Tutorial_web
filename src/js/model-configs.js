@@ -13,6 +13,7 @@ export const MODEL_CONFIGS = {
     label:       'Simple CNN',
     description: '2 Conv + MaxPool + FC(128) — 99.20% acc',
     totalParams: 421642,
+    parametersFile: 'public/models/v1_parameters.json',
     modelFiles: [
       { name: 'layer0', path: 'public/models/layer0.onnx' },
       { name: 'layer1', path: 'public/models/layer1.onnx' },
@@ -41,6 +42,7 @@ export const MODEL_CONFIGS = {
         sublayers: [
           { type: 'MaxPool2d(2×2)', params: 0 },
         ]},
+      { name: 'Flatten',       channels:  1, h:  1, w: 3136, dataKey: 'layer3' },
       { name: 'FC1 + ReLU',    channels:  1, h:  1, w: 128, dataKey: 'layer4',
         sublayers: [
           { type: 'Linear(3136→128)', params: 401536 },
@@ -56,12 +58,13 @@ export const MODEL_CONFIGS = {
     // Receptive-field connectivity: how each layer's pixels relate to the previous layer
     connectivity: [
       null,
-      { type: 'conv', prevLi: 0, kernel: 3, pad: 1, prevChannels:  1 },
-      { type: 'pool', prevLi: 1, kernel: 2 },
-      { type: 'conv', prevLi: 2, kernel: 3, pad: 1, prevChannels: 32 },
-      { type: 'pool', prevLi: 3, kernel: 2 },
-      { type: 'fc', prevLi: 4, mode: 'center' },               // FC1 ← MaxPool2 (center pixel per channel)
-      { type: 'fc', prevLi: 5, mode: 'all', sampleStep: 1 },   // FC2 ← FC1 (all 128 neurons)
+      { type: 'conv',    prevLi: 0, kernel: 3, pad: 1, prevChannels:  1 },
+      { type: 'pool',    prevLi: 1, kernel: 2 },
+      { type: 'conv',    prevLi: 2, kernel: 3, pad: 1, prevChannels: 32 },
+      { type: 'pool',    prevLi: 3, kernel: 2 },
+      { type: 'flatten', prevLi: 4 },                           // Flatten ← MaxPool2
+      { type: 'fc',      prevLi: 5, mode: 'all', sampleStep: 1 }, // FC1 ← Flatten (all 3136 neurons)
+      { type: 'fc',      prevLi: 6, mode: 'all', sampleStep: 1 }, // FC2 ← FC1 (all 128 neurons)
     ],
   },
 
@@ -70,6 +73,7 @@ export const MODEL_CONFIGS = {
     label:       'Deep CNN + BatchNorm',
     description: '4 Conv + MaxPool + BatchNorm + Dropout + FC(512) - 99.61% acc',
     totalParams: 1676650,
+    parametersFile: 'public/models/v2_parameters.json',
     modelFiles: [
       { name: 'layer0',      path: 'public/models/v2_layer0.onnx' },
       { name: 'layer1_conv', path: 'public/models/v2_layer1_conv.onnx' },
@@ -114,6 +118,7 @@ export const MODEL_CONFIGS = {
         sublayers: [
           { type: 'MaxPool2d(2×2)', params: 0 },
         ]},
+      { name: 'Flatten',            channels:  1, h:  1, w: 3136, dataKey: 'layer3' },
       { name: 'FC1 + ReLU',         channels:  1, h:  1, w: 512, dataKey: 'layer4',
         sublayers: [
           { type: 'Linear(3136→512)', params: 1606144 },
@@ -129,14 +134,15 @@ export const MODEL_CONFIGS = {
     ],
     connectivity: [
       null,
-      { type: 'conv', prevLi: 0, kernel: 3, pad: 1, prevChannels:  1 },  // Conv1 ← Input
-      { type: 'conv', prevLi: 1, kernel: 3, pad: 1, prevChannels: 32 },  // Conv2 ← Conv1
-      { type: 'pool', prevLi: 2, kernel: 2 },                            // MaxPool1 ← Conv2
-      { type: 'conv', prevLi: 3, kernel: 3, pad: 1, prevChannels: 32 },  // Conv3 ← MaxPool1
-      { type: 'conv', prevLi: 4, kernel: 3, pad: 1, prevChannels: 64 },  // Conv4 ← Conv3
-      { type: 'pool', prevLi: 5, kernel: 2 },                            // MaxPool2 ← Conv4
-      { type: 'fc', prevLi: 6, mode: 'center' },                         // FC1 ← MaxPool2
-      { type: 'fc', prevLi: 7, mode: 'all', sampleStep: 1 },             // FC2 ← FC1
+      { type: 'conv',    prevLi: 0, kernel: 3, pad: 1, prevChannels:  1 },  // Conv1 ← Input
+      { type: 'conv',    prevLi: 1, kernel: 3, pad: 1, prevChannels: 32 },  // Conv2 ← Conv1
+      { type: 'pool',    prevLi: 2, kernel: 2 },                             // MaxPool1 ← Conv2
+      { type: 'conv',    prevLi: 3, kernel: 3, pad: 1, prevChannels: 32 },  // Conv3 ← MaxPool1
+      { type: 'conv',    prevLi: 4, kernel: 3, pad: 1, prevChannels: 64 },  // Conv4 ← Conv3
+      { type: 'pool',    prevLi: 5, kernel: 2 },                             // MaxPool2 ← Conv4
+      { type: 'flatten', prevLi: 6 },                                        // Flatten ← MaxPool2
+      { type: 'fc',      prevLi: 7, mode: 'all', sampleStep: 1 },           // FC1 ← Flatten
+      { type: 'fc',      prevLi: 8, mode: 'all', sampleStep: 1 },           // FC2 ← FC1
     ],
   },
 };

@@ -38,10 +38,23 @@ export class Visualization {
     this.camera.position.set(0, 1800, 2800);
     this.camera.lookAt(0, -700, 0);
 
-    // Grid on the "floor" below all layers
-    const grid = new THREE.GridHelper(4000, 50, 0x222244, 0x1a1a33);
+    // Floor grid
+    const GRID_COLOR = 0x334488;
+    const grid = new THREE.GridHelper(40000, 20, GRID_COLOR, GRID_COLOR);
     grid.position.set(0, -1600, 0);
     this.scene.add(grid);
+
+    // A grid having a single line passing through the center of the grid in the y direction
+    const sideLines = new THREE.GridHelper(40000, 1, GRID_COLOR, GRID_COLOR);
+    sideLines.position.set(0, -1600, 0);
+    sideLines.rotation.x = Math.PI / 2;
+    this.scene.add(sideLines);
+
+    // A grid having a single line passing through the center of the grid in the x direction
+    const frontLines = new THREE.GridHelper(40000, 1, GRID_COLOR, GRID_COLOR);
+    frontLines.position.set(0, -1600, 0);
+    frontLines.rotation.z = Math.PI / 2;
+    this.scene.add(frontLines);
 
     this.layerRenderer = new LayerRenderer(this.scene, this._modelConfig);
 
@@ -79,6 +92,10 @@ export class Visualization {
     return this.layerRenderer.getMeshes();
   }
 
+  getPixelInfo(layerIdx, channel, x, y) {
+    return this.layerRenderer.getPixelInfo(layerIdx, channel, x, y);
+  }
+
   handleRaycastHit(mesh, uv) {
     return this.layerRenderer.handleRaycastHit(mesh, uv);
   }
@@ -97,7 +114,7 @@ export class Visualization {
   }
 
   addRFLine(p, durationMs) {
-    this.layerRenderer.addRFLine(p.li, p.c, p.px, p.py, durationMs);
+    this.layerRenderer.addRFLine(p.li, p.c, p.px, p.py, durationMs, p.opacity);
   }
 
   showLayerConnections(li) {
@@ -110,6 +127,10 @@ export class Visualization {
 
   highlightRFLine(index) {
     this.layerRenderer.highlightRFLine(index);
+  }
+
+  setParameters(params) {
+    this.layerRenderer.setParameters(params);
   }
 
   setLayerVisible(li, visible) {

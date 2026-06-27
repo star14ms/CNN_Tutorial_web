@@ -26,7 +26,12 @@ export class LayerRenderer {
     this._rfSrcDot        = null; // Source pixel dot (for color change on highlight)
     this._rfDstDots       = [];   // Destination pixel dots indexed by line order
     this._highlightTube   = null;
+    this._rfEpoch         = 0;    // Incremented on each _clearRF; old addRFLine ticks check this
+    this._rfLineOpacities = [];   // Per-line opacity stored by showReceptiveField for restore
+    this._rfBaseColors    = [];   // Per-line {r,g,b} stored by addRFLine for restore
     this._animTimer       = null;
+    this._convLayerWeights = {};  // li → { shape, data, bias? } from setParameters (conv layers)
+    this._linearParams     = {};  // li → { shape, data, bias? } from setParameters (fc layers)
     this._hoverLine     = null;
     this._hoveredKey    = null;
 
@@ -150,7 +155,13 @@ export class LayerRenderer {
     const srcPos = this._getPixelWorldPos(li, c, px, py);
     if (!srcPos) return null;
 
+    const conn        = this._connectivity[li];
     const contributing = this._getContributingPixels(li, c, px, py);
+    const visContrib   = (conn?.type === 'pool')
+      ? this._getMaxPoolPixel(contributing, conn)
+      : contributing;
+    const opacities    = conn ? this._computeLineOpacities(visContrib, conn.prevLi) : [];
+    this._rfLineOpacities = opacities.slice(); // store for highlight restore
 
     const group  = new THREE.Group();
     const dotGeo = new THREE.SphereGeometry(0.5, 6, 6);
@@ -161,11 +172,229 @@ export class LayerRenderer {
 
     this._rfLines   = [];
     this._rfDstDots = [];
-    if (contributing.length > 0) {
-      for (const p of contributing) {
+
+    const def    = this._layerDefs[li];
+    const wObj   = this._convLayerWeights?.[li];
+    const fcWObj = this._linearParams?.[li];
+
+    // Opacity for bias → output pixel line: normalized output value
+    const outIdx0  = c * def.h * def.w + py * def.w + px;
+    const outAbs   = rawData ? Array.from(rawData).map(v => Math.abs(Number(v))) : [1e-6];
+    const outMax   = Math.max(...outAbs, 1e-6);
+    const biasToOutOpac = rawData ? Math.max(0.05, outAbs[outIdx0] / outMax) * 0.85 : 0.85;
+
+    if (conn?.type === 'conv' && wObj) {
+      // Conv with weights: kernel images placed just below each input channel plane;
+      // each line splits at the specific kernel weight pixel, then all converge at bias dot.
+      const [, inC, kH, kW] = wObj.shape;
+      const CELL        = 5;   // must match _buildConvKernelImages
+      const WEIGHT_OFF  = 25;  // world units below the input layer
+      const BIAS_OFF    = 25;  // world units above the output pixel
+      const kHalf = Math.floor(kH / 2);
+      const prevDef  = this._layerDefs[conn.prevLi];
+      const prevData = this._getRawData(conn.prevLi);
+      const centerPx = Math.floor(prevDef.w / 2);
+      const centerPy = Math.floor(prevDef.h / 2);
+
+      group.add(this._buildConvKernelImages(c, inC, kH, kW, wObj.data, conn.prevLi, prevDef, WEIGHT_OFF));
+
+      // Bias pixel above the output pixel (if bias data present)
+      const pxSz    = PIXEL_SIZE;
+      const biasPos = wObj.bias
+        ? new THREE.Vector3(srcPos.x, srcPos.y + BIAS_OFF, srcPos.z)
+        : null;
+      if (biasPos) {
+        group.add(this._buildBiasPixel(wObj.bias[c], wObj.bias, biasPos, pxSz));
+      }
+
+      // Cache channel-center world positions (called once per channel)
+      const chanCenters = {};
+      const _getChanCenter = (ic) => {
+        if (!chanCenters[ic])
+          chanCenters[ic] = this._getPixelWorldPos(conn.prevLi, ic, centerPx, centerPy);
+        return chanCenters[ic];
+      };
+
+      const beforeData = [], afterData = [];
+      const beforeVals = [], afterVals  = [];
+
+      for (const p of visContrib) {
+        const dstPos = this._getPixelWorldPos(p.li, p.c, p.px, p.py); // input pixel
+        if (!dstPos) continue;
+        const dy = p.py - py, dx = p.px - px;
+        const ky = dy + kHalf, kx = dx + kHalf;
+        if (ky < 0 || ky >= kH || kx < 0 || kx >= kW) continue;
+        const wIdx   = (c * inC + p.c) * kH * kW + ky * kW + kx;
+        const weight = wObj.data[wIdx] ?? 0;
+        const inpVal = prevData
+          ? Math.abs(Number(prevData[p.c * prevDef.h * prevDef.w + p.py * prevDef.w + p.px]))
+          : 0;
+        beforeVals.push(inpVal);
+        afterVals.push(Math.abs(inpVal * weight));
+
+        // Kernel weight pixel world position: below the input channel center, offset by kernel (ky,kx)
+        const cc = _getChanCenter(p.c);
+        if (!cc) continue;
+        const splitPt = new THREE.Vector3(
+          cc.x + (kx - kHalf) * CELL,
+          cc.y - WEIGHT_OFF,
+          cc.z + (ky - kHalf) * CELL,
+        );
+        // input pixel → weight pixel: opacity = input value
+        beforeData.push({ src: splitPt.clone(), dst: dstPos });
+        // weight pixel → bias dot (or output pixel if no bias): opacity = input×weight
+        afterData.push({ src: (biasPos ?? srcPos).clone(), dst: splitPt });
+
+        const dot = new THREE.Mesh(dotGeo, new THREE.MeshBasicMaterial({ color: 0xffdd44 }));
+        dot.position.copy(dstPos);
+        group.add(dot);
+        this._rfDstDots.push(dot);
+      }
+
+      const norm = (vals) => {
+        const mx = Math.max(...vals, 1e-6);
+        return vals.map(v => Math.max(0.05, v / mx) * 0.85);
+      };
+      const bOpacs = norm(beforeVals), aOpacs = norm(afterVals);
+      this._rfLineOpacities = aOpacs.slice();
+
+      if (beforeData.length > 0)
+        group.add(this._buildLineSegments(beforeData.map((l, i) => ({ ...l, opacity: bOpacs[i] }))));
+      // afterData lines are added individually so highlightRFLine can colour them one by one
+      for (let i = 0; i < afterData.length; i++) {
+        const { src, dst } = afterData[i];
+        const mat  = new THREE.LineBasicMaterial({ color: 0xffdd44, transparent: true, opacity: aOpacs[i] });
+        const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([src, dst]), mat);
+        this._rfLines.push(line);
+        group.add(line);
+      }
+
+      // Single bias pixel → output pixel line
+      if (biasPos) {
+        const biasLine = new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints([biasPos.clone(), srcPos.clone()]),
+          new THREE.LineBasicMaterial({ color: 0xffdd44, transparent: true, opacity: biasToOutOpac })
+        );
+        group.add(biasLine);
+      }
+
+    } else if (conn?.type === 'fc' && fcWObj) {
+      // FC with parameters: show weight matrix image (1D input only) + bias convergence dot.
+      const [outF, inF] = fcWObj.shape;
+      const outIdx      = c * def.h * def.w + py * def.w + px;
+      const WEIGHT_OFF  = 25;
+      const BIAS_OFF    = 25;
+      const prevDef     = this._layerDefs[conn.prevLi];
+      const prevData    = this._getRawData(conn.prevLi);
+
+      const pxSz    = PIXEL_SIZE;
+      const biasPos = fcWObj.bias
+        ? new THREE.Vector3(srcPos.x, srcPos.y + BIAS_OFF, srcPos.z)
+        : null;
+      if (biasPos) {
+        group.add(this._buildBiasPixel(fcWObj.bias[outIdx], fcWObj.bias, biasPos, pxSz));
+      }
+
+      const is1D = prevDef.channels === 1 && prevDef.h === 1 && inF === prevDef.w;
+
+      if (is1D) {
+        // Weight matrix image: columns = input neurons, rows = output neurons.
+        // The target row (outIdx) is positioned at the same Z as the input neurons (refZ).
+        const p0 = this._getPixelWorldPos(conn.prevLi, 0, 0, 0);
+        const pN = this._getPixelWorldPos(conn.prevLi, 0, inF - 1, 0);
+        if (p0 && pN) {
+          const cellSize     = inF > 1 ? Math.abs((pN.x - p0.x) / (inF - 1)) : PIXEL_SIZE;
+          const imageCenterX = (p0.x + pN.x) / 2;
+          const imageCenterY = p0.y - WEIGHT_OFF;
+          const refZ         = p0.z;
+          // Shift image so row outIdx lands at refZ:
+          // world Z of row j = imageCenterZ - (j + 0.5 - outF/2) * cellSize  (local Y → world -Z)
+          const imageCenterZ = refZ + (outIdx + 0.5 - outF / 2) * cellSize;
+
+          group.add(this._buildFCWeightImage(
+            outIdx, outF, inF, fcWObj.data,
+            imageCenterX, imageCenterY, imageCenterZ, cellSize
+          ));
+
+          const beforeData = [], afterData = [];
+          const beforeVals = [], afterVals  = [];
+
+          for (const p of visContrib) {
+            const inputPos = this._getPixelWorldPos(p.li, p.c, p.px, p.py);
+            if (!inputPos) continue;
+            const wIdx   = outIdx * inF + p.px;
+            const weight = fcWObj.data[wIdx] ?? 0;
+            const inpVal = prevData
+              ? Math.abs(Number(prevData[p.c * prevDef.h * prevDef.w + p.py * prevDef.w + p.px]))
+              : 0;
+            beforeVals.push(inpVal);
+            afterVals.push(Math.abs(inpVal * weight));
+
+            // Split point: directly below input neuron, at the target row's world Z
+            const splitPt = new THREE.Vector3(inputPos.x, imageCenterY, refZ);
+            beforeData.push({ src: splitPt.clone(), dst: inputPos });
+            afterData.push({ src: (biasPos ?? srcPos).clone(), dst: splitPt });
+
+            const dot = new THREE.Mesh(dotGeo, new THREE.MeshBasicMaterial({ color: 0xffdd44 }));
+            dot.position.copy(inputPos);
+            group.add(dot);
+            this._rfDstDots.push(dot);
+          }
+
+          const norm = (vals) => {
+            const mx = Math.max(...vals, 1e-6);
+            return vals.map(v => Math.max(0.05, v / mx) * 0.85);
+          };
+          const bOpacs = norm(beforeVals), aOpacs = norm(afterVals);
+          this._rfLineOpacities = aOpacs.slice();
+
+          if (beforeData.length > 0)
+            group.add(this._buildLineSegments(beforeData.map((l, i) => ({ ...l, opacity: bOpacs[i] }))));
+          // afterData lines are added individually so highlightRFLine can colour them one by one
+          for (let i = 0; i < afterData.length; i++) {
+            const { src, dst } = afterData[i];
+            const mat  = new THREE.LineBasicMaterial({ color: 0xffdd44, transparent: true, opacity: aOpacs[i] });
+            const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([src, dst]), mat);
+            this._rfLines.push(line);
+            group.add(line);
+          }
+        }
+      } else {
+        // Non-1D input (mode=center): lines go directly from inputs to bias/output
+        for (let i = 0; i < visContrib.length; i++) {
+          const p = visContrib[i];
+          const dstPos = this._getPixelWorldPos(p.li, p.c, p.px, p.py);
+          if (!dstPos) continue;
+          const opacity = opacities[i] ?? 0.7;
+          const endPt   = biasPos ?? srcPos;
+          const mat  = new THREE.LineBasicMaterial({ color: 0xffdd44, transparent: true, opacity });
+          const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([endPt.clone(), dstPos]), mat);
+          this._rfLines.push(line);
+          group.add(line);
+          const dot = new THREE.Mesh(new THREE.SphereGeometry(0.5, 6, 6), new THREE.MeshBasicMaterial({ color: 0xffdd44 }));
+          dot.position.copy(dstPos);
+          group.add(dot);
+          this._rfDstDots.push(dot);
+        }
+      }
+
+      // Single bias pixel → output pixel line
+      if (biasPos) {
+        const biasLine = new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints([biasPos.clone(), srcPos.clone()]),
+          new THREE.LineBasicMaterial({ color: 0xffdd44, transparent: true, opacity: biasToOutOpac })
+        );
+        group.add(biasLine);
+      }
+
+    } else {
+      // Pool or non-kernel conv: individual lines with per-line opacity
+      for (let i = 0; i < visContrib.length; i++) {
+        const p = visContrib[i];
         const dstPos = this._getPixelWorldPos(p.li, p.c, p.px, p.py);
         if (!dstPos) continue;
-        const mat  = new THREE.LineBasicMaterial({ color: 0xffdd44, transparent: true, opacity: 0.7 });
+        const opacity = opacities[i] ?? 0.7;
+        const mat  = new THREE.LineBasicMaterial({ color: 0xffdd44, transparent: true, opacity });
         const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([srcPos.clone(), dstPos]), mat);
         this._rfLines.push(line);
         group.add(line);
@@ -195,9 +424,9 @@ export class LayerRenderer {
 
     // Pre-allocate a single LineSegments buffer for all animated lines (1 draw call).
     const MAX_LINES = 2000;
-    const posArr   = new Float32Array(MAX_LINES * 6); // 2 verts × 3 floats each
-    const colorArr = new Float32Array(MAX_LINES * 6); // 2 verts × RGB each
-    // Default color: yellow (0xffdd44 → 1, 0.867, 0.267)
+    const posArr   = new Float32Array(MAX_LINES * 6);
+    const colorArr = new Float32Array(MAX_LINES * 6);
+    // Default color: full yellow (overridden per-line in addRFLine)
     for (let i = 0; i < MAX_LINES * 6; i += 3) {
       colorArr[i] = 1.0; colorArr[i + 1] = 0.867; colorArr[i + 2] = 0.267;
     }
@@ -205,11 +434,12 @@ export class LayerRenderer {
     lsGeo.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
     lsGeo.setAttribute('color',    new THREE.BufferAttribute(colorArr, 3));
     lsGeo.setDrawRange(0, 0);
-    const lsMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.7 });
+    const lsMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.75 });
     this._rfLineSegs                  = new THREE.LineSegments(lsGeo, lsMat);
     this._rfLineSegs.frustumCulled    = false; // prevent disappearing during camera rotation
     this._rfLineCount     = 0;
     this._rfLineEndpoints = [];
+    this._rfBaseColors    = []; // reset per initRFAnimated
     group.add(this._rfLineSegs);
 
     this.scene.add(group);
@@ -218,45 +448,64 @@ export class LayerRenderer {
     this._rfLines   = [];
     this._rfDstDots = [];
 
+    const conn        = this._connectivity[li];
     const contributing = this._getContributingPixels(li, c, px, py);
-    return { contributing, detail: this._buildDetailInfo(li, c, px, py, rawData, contributing) };
+    // For pool: only animate line to the winning pixel
+    const visContrib   = (conn?.type === 'pool')
+      ? this._getMaxPoolPixel(contributing, conn)
+      : contributing;
+    const opacities    = conn ? this._computeLineOpacities(visContrib, conn.prevLi) : [];
+    // Embed opacity into each contributing pixel so addRFLine can use it
+    const visWithOpac  = visContrib.map((p, i) => ({ ...p, opacity: opacities[i] ?? 0.85 }));
+
+    // _buildDetailInfo uses full contributing so formula shows all pool values, not just winner
+    return { contributing: visWithOpac, detail: this._buildDetailInfo(li, c, px, py, rawData, contributing) };
   }
 
   /** Add one RF line with animated drawing from source to destination. */
-  addRFLine(prevLi, prevC, prevPx, prevPy, durationMs = 200) {
+  addRFLine(prevLi, prevC, prevPx, prevPy, durationMs = 200, opacity = 0.85) {
     if (!this._rfGroup || !this._rfSrcPos || !this._rfLineSegs) return;
+    const capturedEpoch = this._rfEpoch; // detect if _clearRF() is called before tick completes
     const dstPos = this._getPixelWorldPos(prevLi, prevC, prevPx, prevPy);
     if (!dstPos) return;
     const src     = this._rfSrcPos.clone();
     const lineIdx = this._rfLineCount++;
     this._rfLineEndpoints.push({ src: src.clone(), dst: dstPos.clone() });
 
-    const geo     = this._rfLineSegs.geometry;
-    const posAttr = geo.attributes.position;
-    const base    = lineIdx * 6;
-    // Write src vertex immediately so segment is allocated
+    const geo       = this._rfLineSegs.geometry;
+    const posAttr   = geo.attributes.position;
+    const colorAttr = geo.attributes.color;
+    const base      = lineIdx * 6;
     posAttr.array[base]     = src.x;
     posAttr.array[base + 1] = src.y;
     posAttr.array[base + 2] = src.z;
 
+    // Set opacity-blended yellow color for this line
+    const r = opacity, g = 0.867 * opacity, b = 0.267 * opacity;
+    colorAttr.array[base]     = r; colorAttr.array[base + 1] = g; colorAttr.array[base + 2] = b;
+    colorAttr.array[base + 3] = r; colorAttr.array[base + 4] = g; colorAttr.array[base + 5] = b;
+    colorAttr.needsUpdate = true;
+    this._rfBaseColors[lineIdx] = { r, g, b }; // store for highlight restore
+
     const startTime = performance.now();
     const tick = () => {
-      if (!this._rfGroup) return;
+      // Bail if _clearRF() was called (epoch changed) — prevents corrupt writes to new RF state
+      if (!this._rfGroup || this._rfEpoch !== capturedEpoch) return;
       const t   = Math.min(1, (performance.now() - startTime) / durationMs);
       const cur = src.clone().lerp(dstPos, t);
       posAttr.array[base + 3] = cur.x;
       posAttr.array[base + 4] = cur.y;
       posAttr.array[base + 5] = cur.z;
       posAttr.needsUpdate     = true;
-      // Expand draw range to reveal this segment (max of current range and this segment's end)
       const needed = (lineIdx + 1) * 2;
       if (geo.drawRange.count < needed) geo.setDrawRange(0, needed);
       if (t < 1) {
         requestAnimationFrame(tick);
       } else {
+        if (this._rfEpoch !== capturedEpoch) return;
         const dot = new THREE.Mesh(new THREE.SphereGeometry(0.5, 6, 6), new THREE.MeshBasicMaterial({ color: 0xffdd44 }));
         dot.position.copy(dstPos);
-        if (this._rfGroup) this._rfGroup.add(dot);
+        this._rfGroup.add(dot);
         this._rfDstDots[lineIdx] = dot;
       }
     };
@@ -271,18 +520,40 @@ export class LayerRenderer {
       if (li > 0) this._showDenseConnections(li);
       return;
     }
-    const def   = this._layerDefs[li];
-    const group = new THREE.Group();
-    const dotGeo      = new THREE.SphereGeometry(0.5, 6, 6);
-    const cornerMat   = new THREE.LineBasicMaterial({ color: 0x66aaff, transparent: true, opacity: 0.45 });
-    const cornerDotMat = new THREE.MeshBasicMaterial({ color: 0x66aaff });
-    const yellowMat   = new THREE.LineBasicMaterial({ color: 0xffdd44, transparent: true, opacity: 0.35 });
-    const yellowDotMat = new THREE.MeshBasicMaterial({ color: 0xffdd44 });
-    // Non-pool layer connection lines use yellow to match individual-pixel selection color
-    const lineMat = new THREE.LineBasicMaterial({ color: 0xffdd44, transparent: true, opacity: 0.45 });
-    const dotMat  = new THREE.MeshBasicMaterial({ color: 0xffdd44 });
+    const def    = this._layerDefs[li];
+    const group  = new THREE.Group();
+    const dotGeo = new THREE.SphereGeometry(0.5, 6, 6);
 
-    // Pool layers: draw 4 corner-to-corner lines (blue) + per-pixel lines (yellow)
+    // Helper: build a Group of LineSegments bucketed by opacity tier so each tier
+    // gets its own material with the correct alpha (actual transparency, not color darkening).
+    const TIERS = 8;
+    const buildLineSegments = (lineData) => {
+      const buckets = Array.from({ length: TIERS }, () => []);
+      for (const item of lineData) {
+        const tier = Math.min(TIERS - 1, Math.floor(item.opacity * TIERS));
+        buckets[tier].push(item);
+      }
+      const g = new THREE.Group();
+      for (let t = 0; t < TIERS; t++) {
+        if (!buckets[t].length) continue;
+        const alpha  = (t + 0.5) / TIERS;
+        const posArr = new Float32Array(buckets[t].length * 6);
+        let bi = 0;
+        for (const { src, dst } of buckets[t]) {
+          posArr[bi++] = src.x; posArr[bi++] = src.y; posArr[bi++] = src.z;
+          posArr[bi++] = dst.x; posArr[bi++] = dst.y; posArr[bi++] = dst.z;
+        }
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
+        const mat = new THREE.LineBasicMaterial({ color: 0xffdd44, transparent: true, opacity: alpha, depthWrite: false });
+        const ls  = new THREE.LineSegments(geo, mat);
+        ls.frustumCulled = false;
+        g.add(ls);
+      }
+      return g;
+    };
+
+    // Pool layers: 4 blue corner lines + yellow lines only to the max-value source pixel per window
     if (conn.type === 'pool') {
       const curGroup  = this.groups[li];
       const prevGroup = this.groups[conn.prevLi];
@@ -303,7 +574,9 @@ export class LayerRenderer {
           new THREE.Vector3(pp.x + pW, pp.y, pp.z + pD),
           new THREE.Vector3(pp.x,      pp.y, pp.z + pD),
         ];
-        // Blue corner lines
+        // Blue corner lines (individual — only 4 of them)
+        const cornerMat    = new THREE.LineBasicMaterial({ color: 0x66aaff, transparent: true, opacity: 0.45 });
+        const cornerDotMat = new THREE.MeshBasicMaterial({ color: 0x66aaff });
         for (let i = 0; i < 4; i++) {
           group.add(new THREE.Line(
             new THREE.BufferGeometry().setFromPoints([curCorners[i], prevCorners[i]]),
@@ -313,38 +586,81 @@ export class LayerRenderer {
           const d2 = new THREE.Mesh(dotGeo, cornerDotMat); d2.position.copy(prevCorners[i]);
           group.add(d1); group.add(d2);
         }
-        // Yellow per-pixel lines: every pixel in pool layer → its source pixels in prev layer
-        const poolDef = this._layerDefs[li];
-        for (let c = 0; c < poolDef.channels; c++) {
-          for (let py = 0; py < poolDef.h; py++) {
-            for (let px = 0; px < poolDef.w; px++) {
+        // Yellow lines + dots: every pool-output pixel → winning source pixel only (max value)
+        const lineData  = [];
+        const yellowDotMat = new THREE.MeshBasicMaterial({ color: 0xffdd44 });
+        const dstDotSeen   = new Set();
+        for (let c = 0; c < def.channels; c++) {
+          for (let py = 0; py < def.h; py++) {
+            for (let px = 0; px < def.w; px++) {
               const srcPos = this._getPixelWorldPos(li, c, px, py);
               if (!srcPos) continue;
+              const contributing = this._getContributingPixels(li, c, px, py);
+              const winners      = this._getMaxPoolPixel(contributing, conn);
+              const opacities    = this._computeLineOpacities(winners, conn.prevLi);
+              // Src dot (pool output pixel)
               const srcDot = new THREE.Mesh(dotGeo, yellowDotMat);
               srcDot.position.copy(srcPos);
               group.add(srcDot);
-              const contributing = this._getContributingPixels(li, c, px, py);
-              for (const p of contributing) {
-                const dstPos = this._getPixelWorldPos(p.li, p.c, p.px, p.py);
+              for (let i = 0; i < winners.length; i++) {
+                const w      = winners[i];
+                const dstPos = this._getPixelWorldPos(w.li, w.c, w.px, w.py);
                 if (!dstPos) continue;
-                group.add(new THREE.Line(
-                  new THREE.BufferGeometry().setFromPoints([srcPos.clone(), dstPos]),
-                  yellowMat
-                ));
-                const dstDot = new THREE.Mesh(dotGeo, yellowDotMat);
-                dstDot.position.copy(dstPos);
-                group.add(dstDot);
+                lineData.push({ src: srcPos, dst: dstPos, opacity: opacities[i] ?? 0.35 });
+                // Dst dot (winning source pixel) — deduplicated
+                const key = `${w.li}_${w.c}_${w.px}_${w.py}`;
+                if (!dstDotSeen.has(key)) {
+                  dstDotSeen.add(key);
+                  const dstDot = new THREE.Mesh(dotGeo, yellowDotMat);
+                  dstDot.position.copy(dstPos);
+                  group.add(dstDot);
+                }
               }
             }
           }
         }
+        if (lineData.length > 0) group.add(buildLineSegments(lineData));
       }
       this.scene.add(group);
       this._rfGroup = group;
       return;
     }
 
-    // For FC layers: show all neurons; for conv: show center pixel per channel
+    // Flatten: sample connections from flatten neurons to their 1:1 source pixels
+    if (conn.type === 'flatten') {
+      const lineData = [];
+      const dotMat2  = new THREE.MeshBasicMaterial({ color: 0xffdd44 });
+      const dstSeen2 = new Set();
+      const step2    = Math.max(1, Math.floor(def.w / 128));
+      for (let px = 0; px < def.w; px += step2) {
+        const srcPos = this._getPixelWorldPos(li, 0, px, 0);
+        if (!srcPos) continue;
+        const srcDot = new THREE.Mesh(dotGeo, dotMat2);
+        srcDot.position.copy(srcPos);
+        group.add(srcDot);
+        const contributing = this._getContributingPixels(li, 0, px, 0);
+        const opacities    = this._computeLineOpacities(contributing, conn.prevLi);
+        for (let i = 0; i < contributing.length; i++) {
+          const p      = contributing[i];
+          const dstPos = this._getPixelWorldPos(p.li, p.c, p.px, p.py);
+          if (!dstPos) continue;
+          lineData.push({ src: srcPos, dst: dstPos, opacity: opacities[i] ?? 0.5 });
+          const key = `${p.li}_${p.c}_${p.px}_${p.py}`;
+          if (!dstSeen2.has(key)) {
+            dstSeen2.add(key);
+            const dstDot = new THREE.Mesh(dotGeo, dotMat2);
+            dstDot.position.copy(dstPos);
+            group.add(dstDot);
+          }
+        }
+      }
+      if (lineData.length > 0) group.add(buildLineSegments(lineData));
+      this.scene.add(group);
+      this._rfGroup = group;
+      return;
+    }
+
+    // Conv / other: show center pixel per channel; lines to all contributing pixels
     const isFc = conn.type === 'fc';
     const sources = [];
     if (isFc) {
@@ -359,7 +675,15 @@ export class LayerRenderer {
         sources.push({ c, px: cx, py: cy });
     }
 
-    for (const { c, px, py } of sources) {
+    const allLineData = [];
+    const dotMat = new THREE.MeshBasicMaterial({ color: 0xffdd44 });
+    const dstSeen = new Set();
+    // For FC: limit sources/destinations to keep line count manageable
+    // For Conv: always show all channels (center pixel each) with all their contributing pixels
+    const srcStep = isFc ? Math.max(1, Math.ceil(sources.length / 16)) : 1;
+
+    for (let si = 0; si < sources.length; si += srcStep) {
+      const { c, px, py } = sources[si];
       const srcPos = this._getPixelWorldPos(li, c, px, py);
       if (!srcPos) continue;
       const srcDot = new THREE.Mesh(dotGeo, dotMat);
@@ -367,16 +691,24 @@ export class LayerRenderer {
       group.add(srcDot);
 
       const contributing = this._getContributingPixels(li, c, px, py);
-      for (const p of contributing) {
+      const dstStep      = isFc ? Math.max(1, Math.ceil(contributing.length / 64)) : 1;
+      const opacities    = this._computeLineOpacities(contributing, conn.prevLi);
+      for (let i = 0; i < contributing.length; i += dstStep) {
+        const p      = contributing[i];
         const dstPos = this._getPixelWorldPos(p.li, p.c, p.px, p.py);
         if (!dstPos) continue;
-        group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([srcPos.clone(), dstPos]), lineMat));
-        const dstDot = new THREE.Mesh(dotGeo, dotMat);
-        dstDot.position.copy(dstPos);
-        group.add(dstDot);
+        allLineData.push({ src: srcPos, dst: dstPos, opacity: opacities[i] ?? 0.45 });
+        const key = `${p.li}_${p.c}_${p.px}_${p.py}`;
+        if (!dstSeen.has(key)) {
+          dstSeen.add(key);
+          const dstDot = new THREE.Mesh(dotGeo, dotMat);
+          dstDot.position.copy(dstPos);
+          group.add(dstDot);
+        }
       }
     }
 
+    if (allLineData.length > 0) group.add(buildLineSegments(allLineData));
     this.scene.add(group);
     this._rfGroup = group;
   }
@@ -468,8 +800,11 @@ export class LayerRenderer {
     if (this._rfLineSegs) {
       const colorAttr = this._rfLineSegs.geometry.attributes.color;
       const n = this._rfLineCount;
-      for (let i = 0; i < n * 2; i++) {
-        colorAttr.setXYZ(i, 1.0, 0.867, 0.267); // yellow
+      // Restore each line to its stored per-line opacity-blended color
+      for (let i = 0; i < n; i++) {
+        const bc = this._rfBaseColors[i] ?? { r: 1.0, g: 0.867, b: 0.267 };
+        colorAttr.setXYZ(i * 2,     bc.r, bc.g, bc.b);
+        colorAttr.setXYZ(i * 2 + 1, bc.r, bc.g, bc.b);
       }
       if (this._rfSrcDot) this._rfSrcDot.material.color.setHex(index >= 0 ? 0xff3333 : 0xffdd44);
       // Reset all dst dots to yellow
@@ -504,9 +839,10 @@ export class LayerRenderer {
     // Static path: individual line materials
     if (this._rfSrcDot) this._rfSrcDot.material.color.setHex(index >= 0 ? 0xff3333 : 0xffdd44);
     for (const d of this._rfDstDots) if (d) d.material.color.setHex(0xffdd44);
-    for (const line of this._rfLines) {
+    for (let i = 0; i < this._rfLines.length; i++) {
+      const line = this._rfLines[i];
       line.material.color.setHex(0xffdd44);
-      line.material.opacity = 0.7;
+      line.material.opacity = this._rfLineOpacities[i] ?? 0.7; // restore per-line opacity
       line.material.needsUpdate = true;
     }
     if (index >= 0 && index < this._rfLines.length) {
@@ -536,6 +872,22 @@ export class LayerRenderer {
   }
 
   getMeshes() { return this.meshMeta.map(m => m.mesh); }
+
+  getPixelInfo(layerIdx, channel, x, y) {
+    const mesh = this.meshByLayer[layerIdx]?.[channel];
+    if (!mesh) return null;
+    const ud  = mesh.userData;
+    const idx = ud.offset + y * ud.w + x;
+    return {
+      layerIdx,
+      layerName:       ud.layerName,
+      channel,
+      x, y,
+      rawValue:        Number(ud.rawData[idx]),
+      normalizedValue: Number(ud.normalizedData[idx]),
+      rawData:         ud.rawData,
+    };
+  }
 
   handleRaycastHit(mesh, uv) {
     const ud = mesh.userData;
@@ -667,21 +1019,25 @@ export class LayerRenderer {
 
   _addLayerLabel(group, name, totalW, isOutput = false) {
     const canvas  = document.createElement('canvas');
-    canvas.width  = 1024;
     canvas.height = 160;
+    // Measure text width first so long names are never clipped
+    canvas.width  = 256; // temp width for measurement
     const ctx     = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.font      = 'bold 104px monospace';
+    const textW   = ctx.measureText(name).width;
+    canvas.width  = Math.max(512, Math.ceil(textW) + 80);
+    ctx.font      = 'bold 104px monospace'; // re-apply after resize
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = '#eeeeee';
     ctx.textAlign = 'center';
-    ctx.fillText(name, 512, 112);
+    ctx.fillText(name, canvas.width / 2, 112);
     const tex    = new THREE.CanvasTexture(canvas);
     const mat    = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
     const sprite = new THREE.Sprite(mat);
-    const aspect = canvas.height / canvas.width;
-    // Output layer has a wider content area; scale label proportionally so it appears the same size
-    const spriteW = isOutput ? Math.round(totalW * 0.22) : 140;
-    sprite.scale.set(spriteW, spriteW * aspect, 1);
+    // Keep a fixed world-unit height and scale width proportionally so text isn't distorted
+    const spriteH = isOutput ? Math.round(totalW * 0.22 * 160 / 1024) : 22;
+    const spriteW = spriteH * (canvas.width / canvas.height);
+    sprite.scale.set(spriteW, spriteH, 1);
     sprite.position.set(totalW / 2, 8, -4);
     group.add(sprite);
     return sprite;
@@ -780,6 +1136,16 @@ export class LayerRenderer {
             for (let idx = 0; idx < prevDef.w; idx += step)
               pixels.push({ li: conn.prevLi, c: prevC, px: idx, py: idy });
       }
+    } else if (conn.type === 'flatten') {
+      // Each flatten neuron maps 1:1 to one source pixel in the prev layer
+      const prevDef2    = this._layerDefs[conn.prevLi];
+      const spatialSize = prevDef2.h * prevDef2.w;
+      const ch  = Math.floor(px / spatialSize);
+      const rem = px % spatialSize;
+      const spy = Math.floor(rem / prevDef2.w);
+      const spx = rem % prevDef2.w;
+      if (ch < prevDef2.channels)
+        pixels.push({ li: conn.prevLi, c: ch, px: spx, py: spy });
     }
     return pixels;
   }
@@ -793,6 +1159,186 @@ export class LayerRenderer {
     const pt = new THREE.Vector3((u - 0.5) * planeW, (v - 0.5) * planeH, 0);
     mesh.localToWorld(pt);
     return pt;
+  }
+
+  _getMaxPoolPixel(contributing, conn) {
+    const prevData = this._getRawData(conn.prevLi);
+    const prevDef  = this._layerDefs[conn.prevLi];
+    if (!prevData || !prevDef || contributing.length === 0) return contributing.slice(0, 1);
+    let maxIdx = 0, maxVal = -Infinity;
+    for (let i = 0; i < contributing.length; i++) {
+      const { c, px, py } = contributing[i];
+      const val = Number(prevData[c * prevDef.h * prevDef.w + py * prevDef.w + px]);
+      if (val > maxVal) { maxVal = val; maxIdx = i; }
+    }
+    return [contributing[maxIdx]];
+  }
+
+  _computeLineOpacities(visContrib, prevLi) {
+    const prevData = this._getRawData(prevLi);
+    const prevDef  = this._layerDefs[prevLi];
+    if (!prevData || !prevDef) return visContrib.map(() => 0.85);
+    const vals = visContrib.map(p =>
+      Math.abs(Number(prevData[p.c * prevDef.h * prevDef.w + p.py * prevDef.w + p.px] ?? 0))
+    );
+    const maxAbs = Math.max(...vals, 1e-6);
+    return vals.map(v => Math.max(0.05, v / maxAbs) * 0.85);
+  }
+
+  /** Load conv/linear parameters and map them to layer indices. */
+  setParameters(paramsObj) {
+    this._convLayerWeights = {};
+    this._linearParams     = {};
+    if (!paramsObj) return;
+    let convIdx = 0, fcIdx = 0;
+    for (let li = 0; li < this._connectivity.length; li++) {
+      const t = this._connectivity[li]?.type;
+      if (t === 'conv' && paramsObj.convs?.[convIdx] !== undefined) {
+        this._convLayerWeights[li] = paramsObj.convs[convIdx++];
+      } else if (t === 'fc' && paramsObj.linears?.[fcIdx] !== undefined) {
+        this._linearParams[li] = paramsObj.linears[fcIdx++];
+      }
+    }
+  }
+
+  /** Build grayscale kernel images, one per input channel, placed just below each input channel plane. */
+  _buildConvKernelImages(outCh, inC, kH, kW, weightData, prevLi, prevDef, weightOffset) {
+    const group  = new THREE.Group();
+    const CELL   = 5;  // world units per kernel pixel (must match showReceptiveField)
+    const planeW = kW * CELL;
+    const planeH = kH * CELL;
+    const centerPx = Math.floor(prevDef.w / 2);
+    const centerPy = Math.floor(prevDef.h / 2);
+
+    for (let ic = 0; ic < inC; ic++) {
+      const cc = this._getPixelWorldPos(prevLi, ic, centerPx, centerPy);
+      if (!cc) continue;
+
+      const base   = (outCh * inC + ic) * kH * kW;
+      const kSlice = weightData.slice ? weightData.slice(base, base + kH * kW)
+                                      : Array.from({ length: kH * kW }, (_, j) => weightData[base + j]);
+      let kMin = Infinity, kMax = -Infinity;
+      for (const v of kSlice) { if (v < kMin) kMin = v; if (v > kMax) kMax = v; }
+      const kRange = Math.max(Math.abs(kMax - kMin), 1e-6);
+
+      const texData = new Uint8Array(kW * kH * 4);
+      for (let ky = 0; ky < kH; ky++) {
+        for (let kx = 0; kx < kW; kx++) {
+          const bv   = Math.round(((kSlice[ky * kW + kx] - kMin) / kRange) * 255);
+          const dstI = (kH - 1 - ky) * kW + kx; // flip Y like feature maps
+          texData[dstI * 4]     = bv;
+          texData[dstI * 4 + 1] = bv;
+          texData[dstI * 4 + 2] = bv;
+          texData[dstI * 4 + 3] = 220;
+        }
+      }
+      const tex = new THREE.DataTexture(texData, kW, kH);
+      tex.needsUpdate = true;
+      tex.magFilter   = THREE.NearestFilter;
+      tex.minFilter   = THREE.NearestFilter;
+
+      const geo  = new THREE.PlaneGeometry(planeW, planeH);
+      const mat  = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide, transparent: true, opacity: 0.95 });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.rotation.x = -Math.PI / 2;
+      // Place kernel image centered below the input channel's feature map
+      mesh.position.set(cc.x, cc.y - weightOffset, cc.z);
+      mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: 0x888888 })));
+      group.add(mesh);
+    }
+    return group;
+  }
+
+  /** Build a Group of LineSegments bucketed by opacity tier (shared helper). */
+  _buildLineSegments(lineData) {
+    const TIERS   = 8;
+    const buckets = Array.from({ length: TIERS }, () => []);
+    for (const item of lineData) {
+      const tier = Math.min(TIERS - 1, Math.floor(item.opacity * TIERS));
+      buckets[tier].push(item);
+    }
+    const g = new THREE.Group();
+    for (let t = 0; t < TIERS; t++) {
+      if (!buckets[t].length) continue;
+      const alpha  = (t + 0.5) / TIERS;
+      const posArr = new Float32Array(buckets[t].length * 6);
+      let bi = 0;
+      for (const { src, dst } of buckets[t]) {
+        posArr[bi++] = src.x; posArr[bi++] = src.y; posArr[bi++] = src.z;
+        posArr[bi++] = dst.x; posArr[bi++] = dst.y; posArr[bi++] = dst.z;
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
+      const mat = new THREE.LineBasicMaterial({ color: 0xffdd44, transparent: true, opacity: alpha, depthWrite: false });
+      const ls  = new THREE.LineSegments(geo, mat);
+      ls.frustumCulled = false;
+      g.add(ls);
+    }
+    return g;
+  }
+
+  /** Build a horizontal FC weight matrix image mesh. Target row (outIdx) lands at world Z = cz. */
+  _buildFCWeightImage(outIdx, outF, inF, weightData, cx, cy, cz, cellSize) {
+    const imageW = inF  * cellSize;
+    const imageH = outF * cellSize;
+
+    let wMin = Infinity, wMax = -Infinity;
+    for (let k = 0; k < weightData.length; k++) {
+      const v = weightData[k];
+      if (v < wMin) wMin = v;
+      if (v > wMax) wMax = v;
+    }
+    const wRange = Math.max(wMax - wMin, 1e-6);
+
+    // Row j stored at texture row j from bottom (V=0).
+    // After rotation.x=-π/2: local Y → world -Z, so row j (from bottom) → world Z = cy - (j+0.5-outF/2)*cellSize.
+    // We set mesh.position.z = cz so that row outIdx is at world Z = cz.
+    const texData = new Uint8Array(inF * outF * 4);
+    for (let j = 0; j < outF; j++) {
+      const dim = (j === outIdx) ? 1.0 : 0.15;
+      for (let i = 0; i < inF; i++) {
+        const w  = weightData[j * inF + i];
+        const bv = Math.round(((w - wMin) / wRange) * 255 * dim);
+        const dstI = j * inF + i;
+        texData[dstI * 4]     = bv;
+        texData[dstI * 4 + 1] = bv;
+        texData[dstI * 4 + 2] = bv;
+        texData[dstI * 4 + 3] = 220;
+      }
+    }
+
+    const tex = new THREE.DataTexture(texData, inF, outF);
+    tex.needsUpdate = true;
+    tex.magFilter   = THREE.NearestFilter;
+    tex.minFilter   = THREE.NearestFilter;
+
+    const geo  = new THREE.PlaneGeometry(imageW, imageH);
+    const mat  = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide, transparent: true, opacity: 0.95 });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(cx, cy, cz);
+    mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: 0x888888 })));
+    return mesh;
+  }
+
+  /** Build a 1×1 bias pixel as a PlaneGeometry quad with a grayscale DataTexture. */
+  _buildBiasPixel(biasVal, biasArr, pos, pixelSize) {
+    const maxAbs = Math.max(...biasArr.map(v => Math.abs(v)), 1e-6);
+    const norm   = (biasVal / maxAbs + 1) / 2; // signed: [-1,1] → [0,1]
+    const bv     = Math.round(Math.max(0, Math.min(1, norm)) * 255);
+    const texData = new Uint8Array([bv, bv, bv, 255]);
+    const tex = new THREE.DataTexture(texData, 1, 1);
+    tex.magFilter = THREE.NearestFilter;
+    tex.minFilter = THREE.NearestFilter;
+    tex.needsUpdate = true;
+    const geo  = new THREE.PlaneGeometry(pixelSize, pixelSize);
+    const mat  = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.copy(pos);
+    const edgesMat = new THREE.LineBasicMaterial({ color: 0x888888, transparent: true, opacity: 0.7 });
+    mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgesMat));
+    return mesh;
   }
 
   _buildDetailInfo(li, c, px, py, rawData, contributing) {
@@ -814,21 +1360,27 @@ export class LayerRenderer {
   }
 
   _getRawData(li) {
-    const ld = this._layerData, ip = this._inputPixels;
-    const map = [ip, ld?.layer0?.data, ld?.layer1?.data, ld?.layer2?.data,
-                     ld?.layer3?.data, ld?.layer4?.data, ld?.output?.data];
-    return map[li] ?? null;
+    if (li === 0) return this._inputPixels;
+    const ld  = this._layerData;
+    const def = this._layerDefs[li];
+    if (def?.dataKey) return ld?.[def.dataKey]?.data ?? null;
+    // Legacy fallback for configs without dataKey
+    const keys = ['layer0','layer1','layer2','layer3','layer4','output'];
+    return ld?.[keys[li - 1]]?.data ?? null;
   }
 
   // ── Cleanup ────────────────────────────────────────────────────────────────
 
   _clearRF() {
+    this._rfEpoch++;
     this._rfLines         = [];
     this._rfLineSegs      = null;
     this._rfLineCount     = 0;
     this._rfLineEndpoints = [];
     this._rfSrcDot        = null;
     this._rfDstDots       = [];
+    this._rfLineOpacities = [];
+    this._rfBaseColors    = [];
     if (this._highlightTube) {
       this._highlightTube.geometry.dispose();
       this._highlightTube.material.dispose();

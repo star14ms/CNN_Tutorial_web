@@ -28,10 +28,24 @@ export class DrawingCanvas {
 
   _bindEvents() {
     const el = this.canvas;
-    el.addEventListener('mousedown', e => { if (e.button === 0) { this.drawing = true; this._lastX = null; this._lastY = null; this._draw(e); } });
-    el.addEventListener('mousemove', e => { if (this.drawing) this._draw(e); });
-    el.addEventListener('mouseup',   () => { if (this.drawing) { this.drawing = false; this._lastX = null; this._lastY = null; this.onStrokeEnd(); } });
-    el.addEventListener('mouseleave',() => { if (this.drawing) { this.drawing = false; this._lastX = null; this._lastY = null; this.onStrokeEnd(); } });
+    el.addEventListener('mousedown', e => {
+      if (e.button !== 0) return;
+      this.drawing = true;
+      this._lastX = null;
+      this._lastY = null;
+      this._draw(e);
+    });
+
+    // Track on document so dragging outside canvas doesn't break the stroke
+    document.addEventListener('mousemove', e => { if (this.drawing) this._draw(e); });
+    document.addEventListener('mouseup', e => {
+      if (e.button === 0 && this.drawing) {
+        this.drawing = false;
+        this._lastX = null;
+        this._lastY = null;
+        this.onStrokeEnd();
+      }
+    });
 
     // Touch support
     el.addEventListener('touchstart', e => { e.preventDefault(); this.drawing = true; this._lastX = null; this._lastY = null; this._draw(e.touches[0]); }, {passive:false});

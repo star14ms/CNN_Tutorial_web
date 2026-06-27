@@ -35,7 +35,13 @@ async function main() {
   let _animContrib   = null;
   let _animDetail    = null;
   let _animInfo      = null;
-  let _activeLayerLi = null;
+  let _activeLayerLi  = null;
+  let _selectedPixel  = null; // { layerIdx, channel, x, y } — persists across inference updates
+  let _dpViewMode     = 'expansion';
+  let _lastDetail     = null;
+  let _lastInfo       = null;
+  let _lastContrib    = null;
+  let _lastShownCount = 0;
 
   // ── 3D Visualization ───────────────────────────────────────────────────────
   const viz = new Visualization(threeDiv, MODEL_CONFIGS[DEFAULT_MODEL_ID]);
@@ -76,27 +82,15 @@ async function main() {
     setActiveLayer(null);
 
     stopFormulaAnim();
-
-    if (animMode) {
-      const speed = getSpeed();
-      const init  = viz.initRFAnimated(info);
-      if (init) {
-        _animContrib = init.contributing;
-        _animDetail  = init.detail;
-        _animInfo    = info;
-        showDetailPanel(init.detail, info, true);
-        startFormulaAnim(speed);
-      }
-    } else {
-      const detail = viz.showReceptiveField(info);
-      if (detail) showDetailPanel(detail, info, false);
-    }
+    _selectedPixel = { layerIdx: info.layerIdx, channel: info.channel, x: info.x, y: info.y };
+    triggerPixelSelection(info);
   }, () => {
     // Left-click on empty space — cancel selection
     stopFormulaAnim();
     viz.clearReceptiveField();
     detailPanel.style.display = 'none';
     setActiveLayer(null);
+    _selectedPixel = null;
   });
 
   threeDiv.addEventListener('contextmenu', e => {
@@ -133,11 +127,14 @@ async function main() {
 
     rebuildLayerModal(config);
     viz.setModelConfig(config);
+    await model.loadParameters(config.parametersFile);
+    viz.setParameters(model.parameters);
     lastResult = null;
     lastPixels = null;
     predEl.textContent   = '—';
     confBarsEl.innerHTML = '';
     detailPanel.style.display = 'none';
+    _selectedPixel = null;
 
     await renderEmpty();
   }
@@ -232,6 +229,17 @@ async function main() {
       lastResult = result;
       viz.update(result, pixels, false);
       showPrediction(result.output.data);
+      // Re-trigger selection with fresh data
+      if (_selectedPixel) {
+        const { layerIdx, channel, x, y } = _selectedPixel;
+        const freshInfo = viz.getPixelInfo(layerIdx, channel, x, y);
+        if (freshInfo) {
+          stopFormulaAnim();
+          triggerPixelSelection(freshInfo);
+        }
+      } else if (_activeLayerLi !== null) {
+        viz.showLayerConnections(_activeLayerLi);
+      }
     } catch (err) { console.error('Inference error:', err); }
   }, 300);
 
@@ -248,6 +256,7 @@ async function main() {
     detailPanel.style.display = 'none';
     viz.clearReceptiveField();
     setActiveLayer(null);
+    _selectedPixel = null;
     renderEmpty();
   });
 
@@ -292,6 +301,7 @@ async function main() {
       stopFormulaAnim();
       detailPanel.style.display = 'none';
       viz.clearReceptiveField();
+      _selectedPixel = null;
     });
   }
 
@@ -328,6 +338,22 @@ async function main() {
     _formulaTimer = setTimeout(step, speed);
   }
 
+  function triggerPixelSelection(info) {
+    if (animMode) {
+      const init = viz.initRFAnimated(info);
+      if (init) {
+        _animContrib = init.contributing;
+        _animDetail  = init.detail;
+        _animInfo    = info;
+        showDetailPanel(init.detail, info, true);
+        startFormulaAnim(getSpeed());
+      }
+    } else {
+      const detail = viz.showReceptiveField(info);
+      if (detail) showDetailPanel(detail, info, false);
+    }
+  }
+
   // ── Detail panel rendering ─────────────────────────────────────────────────
   function showDetailPanel(detail, info, isAnimating) {
     detailPanel.style.display = 'block';
@@ -335,6 +361,11 @@ async function main() {
   }
 
   function renderDetailFormula(detail, info, contributing, shownCount) {
+    _lastDetail     = detail;
+    _lastInfo       = info;
+    _lastContrib    = contributing;
+    _lastShownCount = shownCount;
+
     const { layerName, channel, px, py, outVal, conn, prevValues } = detail;
 
     if (!conn) {
@@ -355,93 +386,86 @@ async function main() {
     if (isPool) {
       html += renderKatex(`y = \\max_{\\Delta y,\\Delta x}\\!\\left(x_{c,\\;ky+\\Delta y,\\;kx+\\Delta x}\\right)`);
     } else if (isFC) {
-      html += renderKatex(
-        `y_j = \\mathrm{ReLU}\\!\\left(\\sum_{i} w_{j,i}\\cdot x_i + b_j\\right)`
-      );
+      html += renderKatex(`y_j = \\mathrm{ReLU}\\!\\left(\\sum_{i} w_{j,i}\\cdot x_i + b_j\\right)`);
     } else {
-      html += renderKatex(
-        `y = \\mathrm{ReLU}\\!\\left(\\sum_{c,\\Delta y,\\Delta x} w_{c,\\Delta y,\\Delta x}\\cdot x_{c,\\,y+\\Delta y,\\,x+\\Delta x}+b\\right)`
-      );
+      html += renderKatex(`y = \\mathrm{ReLU}\\!\\left(\\sum_{c,\\Delta y,\\Delta x} w_{c,\\Delta y,\\Delta x}\\cdot x_{c,\\,y+\\Delta y,\\,x+\\Delta x}+b\\right)`);
     }
     html += `</div>`;
 
-    // ── Substituted formula: terms one by one ──
+    // ── View mode toggle ──
+    html += `<div class="dp-view-toggle">
+      <button class="dp-toggle-btn${_dpViewMode === 'expansion' ? ' active' : ''}" data-mode="expansion">Expansion</button>
+      <button class="dp-toggle-btn${_dpViewMode === 'matrix' ? ' active' : ''}" data-mode="matrix">Matrix</button>
+    </div>`;
+
+    // ── Substituted formula ──
     html += `<div class="dp-formula-sub">`;
 
-    if (shown.length === 0) {
-      const placeholder = isPool
-        ? 'y = \\max(\\ldots)'
-        : 'y_j = \\mathrm{ReLU}(\\ldots+b_j)';
-      html += `<div class="dp-term-placeholder">${renderKatex(placeholder, true)}</div>`;
+    if (_dpViewMode === 'matrix') {
+      html += buildMatrixSubHtml(detail, prevValues, shownCount, done, outStr);
     } else {
-      html += `<div class="dp-terms-list">`;
-      if (isPool) {
-        for (let i = 0; i < shown.length; i += 3) {
-          html += `<div class="dp-term-row">`;
-          for (let j = i; j < Math.min(i + 3, shown.length); j++) {
-            const p = shown[j];
-            const v = p.val != null ? p.val.toFixed(4) : '?';
-            html += `<div class="dp-term" data-index="${j}">${renderKatex(
-              `x_{(${p.px},\\,${p.py})} = ${v}`, true
-            )}</div>`;
-          }
-          html += `</div>`;
-        }
-        if (done) {
-          html += `<div class="dp-term dp-result">${renderKatex(
-            `y = \\max = \\mathbf{${outStr}}`, true
-          )}</div>`;
-        }
-      } else if (isFC) {
-        for (let i = 0; i < shown.length; i += 3) {
-          html += `<div class="dp-term-row">`;
-          for (let j = i; j < Math.min(i + 3, shown.length); j++) {
-            const p = shown[j];
-            const v = p.val != null ? p.val.toFixed(4) : '?';
-            const sign = j === 0 ? '' : '+\\;';
-            html += `<div class="dp-term" data-index="${j}">${renderKatex(
-              `${sign}w_{${channel},${p.px}}\\cdot ${v}`, true
-            )}</div>`;
-          }
-          html += `</div>`;
-        }
-        if (done) {
-          html += `<div class="dp-term dp-result">${renderKatex(
-            `+b \\;\\Rightarrow\\; y = \\mathrm{ReLU}(\\cdot) = \\mathbf{${outStr}}`, true
-          )}</div>`;
-        } else {
-          html += `<div class="dp-term dp-muted">${renderKatex('+\\cdots+b)', true)}</div>`;
-        }
+      // Expansion mode
+      if (shown.length === 0) {
+        const placeholder = isPool ? 'y = \\max(\\ldots)' : 'y_j = \\mathrm{ReLU}(\\ldots+b_j)';
+        html += `<div class="dp-term-placeholder">${renderKatex(placeholder, true)}</div>`;
       } else {
-        for (let i = 0; i < shown.length; i += 3) {
-          html += `<div class="dp-term-row">`;
-          for (let j = i; j < Math.min(i + 3, shown.length); j++) {
-            const p = shown[j];
-            const v = p.val != null ? p.val.toFixed(4) : '?';
-            const dx = p.px - px;
-            const dy = p.py - py;
-            const sign = j === 0 ? '' : '+\\;';
-            html += `<div class="dp-term" data-index="${j}">${renderKatex(
-              `${sign}w_{${p.c},\\,${dx},\\,${dy}}\\cdot ${v}`, true
-            )}</div>`;
+        html += `<div class="dp-terms-list">`;
+        if (isPool) {
+          for (let i = 0; i < shown.length; i += 3) {
+            html += `<div class="dp-term-row">`;
+            for (let j = i; j < Math.min(i + 3, shown.length); j++) {
+              const p = shown[j];
+              const v = p.val != null ? p.val.toFixed(4) : '?';
+              html += `<div class="dp-term" data-index="${j}">${renderKatex(`x_{(${p.px},\\,${p.py})} = ${v}`, true)}</div>`;
+            }
+            html += `</div>`;
           }
-          html += `</div>`;
-        }
-        if (done) {
-          html += `<div class="dp-term dp-result">${renderKatex(
-            `+b \\;\\Rightarrow\\; y = \\mathrm{ReLU}(\\cdot) = \\mathbf{${outStr}}`, true
-          )}</div>`;
+          if (done) {
+            html += `<div class="dp-term dp-result">${renderKatex(`y = \\max = \\mathbf{${outStr}}`, true)}</div>`;
+          }
+        } else if (isFC) {
+          for (let i = 0; i < shown.length; i += 3) {
+            html += `<div class="dp-term-row">`;
+            for (let j = i; j < Math.min(i + 3, shown.length); j++) {
+              const p = shown[j];
+              const v = p.val != null ? p.val.toFixed(4) : '?';
+              const sign = j === 0 ? '' : '+\\;';
+              html += `<div class="dp-term" data-index="${j}">${renderKatex(`${sign}w_{${channel},${p.px}}\\cdot ${v}`, true)}</div>`;
+            }
+            html += `</div>`;
+          }
+          if (done) {
+            html += `<div class="dp-term dp-result">${renderKatex(`+b \\;\\Rightarrow\\; y = \\mathrm{ReLU}(\\cdot) = \\mathbf{${outStr}}`, true)}</div>`;
+          } else {
+            html += `<div class="dp-term dp-muted">${renderKatex('+\\cdots+b)', true)}</div>`;
+          }
         } else {
-          html += `<div class="dp-term dp-muted">${renderKatex('+\\cdots+b)', true)}</div>`;
+          for (let i = 0; i < shown.length; i += 3) {
+            html += `<div class="dp-term-row">`;
+            for (let j = i; j < Math.min(i + 3, shown.length); j++) {
+              const p = shown[j];
+              const v = p.val != null ? p.val.toFixed(4) : '?';
+              const dx = p.px - px;
+              const dy = p.py - py;
+              const sign = j === 0 ? '' : '+\\;';
+              html += `<div class="dp-term" data-index="${j}">${renderKatex(`${sign}w_{${p.c},\\,${dx},\\,${dy}}\\cdot ${v}`, true)}</div>`;
+            }
+            html += `</div>`;
+          }
+          if (done) {
+            html += `<div class="dp-term dp-result">${renderKatex(`+b \\;\\Rightarrow\\; y = \\mathrm{ReLU}(\\cdot) = \\mathbf{${outStr}}`, true)}</div>`;
+          } else {
+            html += `<div class="dp-term dp-muted">${renderKatex('+\\cdots+b)', true)}</div>`;
+          }
         }
+        html += `</div>`;
       }
-      html += `</div>`;
     }
 
     html += `</div>`;
     detailContent.innerHTML = html;
-    const termsList = detailContent.querySelector('.dp-terms-list');
-    if (termsList) termsList.scrollTop = termsList.scrollHeight;
+    const formulaSub = detailContent.querySelector('.dp-formula-sub');
+    if (formulaSub) formulaSub.scrollTop = formulaSub.scrollHeight;
 
     if (!done && prevValues.length > 0) {
       const pct = Math.round((shownCount / prevValues.length) * 100);
@@ -453,35 +477,134 @@ async function main() {
       detailProgress.innerHTML = '';
     }
 
-    // Wire term hover → highlight corresponding 3D line red
+    // Wire toggle buttons
+    detailContent.querySelectorAll('.dp-toggle-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        _dpViewMode = btn.dataset.mode;
+        renderDetailFormula(_lastDetail, _lastInfo, _lastContrib, _lastShownCount);
+      });
+    });
+
+    // Wire term hover/click → highlight 3D line; multi-cell aware
     detailContent.querySelectorAll('.dp-term[data-index]').forEach(el => {
       el.addEventListener('mouseenter', () => {
+        const idx = el.dataset.index;
         detailContent.querySelectorAll('.dp-term[data-index]').forEach(t => t.classList.remove('dp-term-active'));
-        el.classList.add('dp-term-active');
-        viz.highlightRFLine(parseInt(el.dataset.index));
+        detailContent.querySelectorAll(`.dp-term[data-index="${idx}"]`).forEach(t => t.classList.add('dp-term-active'));
+        viz.highlightRFLine(parseInt(idx));
       });
       el.addEventListener('mouseleave', () => {
-        el.classList.remove('dp-term-active');
+        detailContent.querySelectorAll('.dp-term[data-index]').forEach(t => t.classList.remove('dp-term-active'));
         const pinned = detailContent.querySelector('.dp-term-pinned');
         if (pinned) {
-          viz.highlightRFLine(parseInt(pinned.dataset.index));
+          const pidx = pinned.dataset.index;
+          detailContent.querySelectorAll(`.dp-term[data-index="${pidx}"]`).forEach(t => t.classList.add('dp-term-active'));
+          viz.highlightRFLine(parseInt(pidx));
         } else {
           viz.highlightRFLine(-1);
         }
       });
       el.addEventListener('click', e => {
         e.stopPropagation();
-        const idx = parseInt(el.dataset.index);
+        const idx = el.dataset.index;
         const wasActive = el.classList.contains('dp-term-pinned');
         detailContent.querySelectorAll('.dp-term[data-index]').forEach(t => t.classList.remove('dp-term-pinned'));
         if (!wasActive) {
-          el.classList.add('dp-term-pinned');
-          viz.highlightRFLine(idx);
+          detailContent.querySelectorAll(`.dp-term[data-index="${idx}"]`).forEach(t => t.classList.add('dp-term-pinned'));
+          viz.highlightRFLine(parseInt(idx));
         } else {
           viz.highlightRFLine(-1);
         }
       });
     });
+  }
+
+  function buildMatrixSubHtml(detail, prevValues, shownCount, done, outStr) {
+    const { channel, px, py, conn } = detail;
+    const isPool = conn.type === 'pool';
+    const isFC   = conn.type === 'fc';
+    let html = '';
+
+    if (isPool) {
+      const k = conn.kernel || 2;
+      html += `<div class="dp-mat-wrap"><div class="dp-mat-brace dp-mat-brace-l"></div>`;
+      html += `<div class="dp-mat-grid" style="grid-template-columns:repeat(${k},auto)">`;
+      for (let j = 0; j < k * k; j++) {
+        const revealed = j < shownCount;
+        const p = revealed ? prevValues[j] : null;
+        const v = revealed ? (p.val != null ? p.val.toFixed(3) : '?') : null;
+        const di = revealed ? `data-index="${j}"` : '';
+        html += `<span class="dp-term dp-mat-cell${revealed ? '' : ' dp-mat-dim'}" ${di}>${renderKatex(revealed ? v : '\\cdot', true)}</span>`;
+      }
+      html += `</div><div class="dp-mat-brace dp-mat-brace-r"></div></div>`;
+      if (done) html += `<div class="dp-mat-result">${renderKatex(`y = \\max = \\mathbf{${outStr}}`, true)}</div>`;
+
+    } else if (isFC) {
+      html += `<div class="dp-mat-fc-pair">`;
+      // Weight column vector
+      html += `<div class="dp-mat-wrap"><div class="dp-mat-brace dp-mat-brace-l"></div><div class="dp-mat-fc-col">`;
+      for (let j = 0; j < shownCount; j++) {
+        const p = prevValues[j];
+        html += `<span class="dp-term dp-mat-cell" data-index="${j}">${renderKatex(`w_{${channel},${p.px}}`, true)}</span>`;
+      }
+      if (!done) html += `<span class="dp-mat-dim dp-mat-cell">${renderKatex('\\vdots', true)}</span>`;
+      html += `</div><div class="dp-mat-brace dp-mat-brace-r"></div></div>`;
+      html += `<span class="dp-mat-op">·</span>`;
+      // Input column vector
+      html += `<div class="dp-mat-wrap"><div class="dp-mat-brace dp-mat-brace-l"></div><div class="dp-mat-fc-col">`;
+      for (let j = 0; j < shownCount; j++) {
+        const p = prevValues[j];
+        const v = p.val != null ? p.val.toFixed(3) : '?';
+        html += `<span class="dp-term dp-mat-cell" data-index="${j}">${renderKatex(v, true)}</span>`;
+      }
+      if (!done) html += `<span class="dp-mat-dim dp-mat-cell">${renderKatex('\\vdots', true)}</span>`;
+      html += `</div><div class="dp-mat-brace dp-mat-brace-r"></div></div>`;
+      html += `</div>`;
+      if (done) html += `<div class="dp-mat-result">${renderKatex(`+b \\;\\Rightarrow\\; y = \\mathrm{ReLU}(\\cdot) = \\mathbf{${outStr}}`, true)}</div>`;
+
+    } else {
+      // Conv: per-channel weight matrix ⊙ input patch
+      const k = conn.kernel || 3;
+      const half = Math.floor(k / 2);
+      const prevCCount = conn.prevChannels || 1;
+      for (let c = 0; c < prevCCount; c++) {
+        const baseIdx = c * k * k;
+        html += `<div class="dp-mat-channel-row">`;
+        html += `<span class="dp-mat-ch-label">${renderKatex(`c\\!=\\!${c}:`, true)}</span>`;
+        // Weight matrix W_c
+        html += `<div class="dp-mat-wrap"><div class="dp-mat-brace dp-mat-brace-l"></div>`;
+        html += `<div class="dp-mat-grid" style="grid-template-columns:repeat(${k},auto)">`;
+        for (let dyIdx = 0; dyIdx < k; dyIdx++) {
+          for (let dxIdx = 0; dxIdx < k; dxIdx++) {
+            const j = baseIdx + dyIdx * k + dxIdx;
+            const revealed = j < shownCount;
+            const dy = dyIdx - half, dx = dxIdx - half;
+            const di = revealed ? `data-index="${j}"` : '';
+            html += `<span class="dp-term dp-mat-cell${revealed ? '' : ' dp-mat-dim'}" ${di}>${renderKatex(`w_{${c},${dy},${dx}}`, true)}</span>`;
+          }
+        }
+        html += `</div><div class="dp-mat-brace dp-mat-brace-r"></div></div>`;
+        html += `<span class="dp-mat-op">⊙</span>`;
+        // Input patch X_c
+        html += `<div class="dp-mat-wrap"><div class="dp-mat-brace dp-mat-brace-l"></div>`;
+        html += `<div class="dp-mat-grid" style="grid-template-columns:repeat(${k},auto)">`;
+        for (let dyIdx = 0; dyIdx < k; dyIdx++) {
+          for (let dxIdx = 0; dxIdx < k; dxIdx++) {
+            const j = baseIdx + dyIdx * k + dxIdx;
+            const revealed = j < shownCount;
+            const p = revealed ? prevValues[j] : null;
+            const v = revealed ? (p.val != null ? p.val.toFixed(3) : '?') : null;
+            const di = revealed ? `data-index="${j}"` : '';
+            html += `<span class="dp-term dp-mat-cell${revealed ? '' : ' dp-mat-dim'}" ${di}>${renderKatex(revealed ? v : '\\cdot', true)}</span>`;
+          }
+        }
+        html += `</div><div class="dp-mat-brace dp-mat-brace-r"></div></div>`;
+        if (c < prevCCount - 1) html += `<span class="dp-mat-plus">+</span>`;
+        html += `</div>`;
+      }
+      if (done) html += `<div class="dp-mat-result">${renderKatex(`+b \\;\\Rightarrow\\; y = \\mathrm{ReLU}(\\cdot) = \\mathbf{${outStr}}`, true)}</div>`;
+    }
+    return html;
   }
 
   function renderKatex(latex, inline = false) {
