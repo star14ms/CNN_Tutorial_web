@@ -47,6 +47,28 @@ Client-side CNN visualization web app. Users draw a digit on a canvas, run brows
 
 See `BUGS.md` for the full history of reported bugs and misimplementations. **Always read `BUGS.md` before implementing new features** to avoid repeating known mistakes.
 
+### Automatic BUGS.md update rule
+
+When the user sends a request using a numbered list or bullet points (including `-`, `*`, `•`, or any other bullet symbol), follow this process for **each item**:
+
+1. **Classify the item.** Determine whether it is:
+   - A **bug / misimplementation** — something that was implemented incorrectly, behaves contrary to intent, or was visually wrong.
+   - A **new feature** — something that did not exist before.
+   - A **refactor / rename** — structural change with no behavioral bug.
+
+2. **If the item is a bug or misimplementation:**
+   - Fix it as normal.
+   - After fixing, **append a new entry to `BUGS.md`** (next B-N number) with:
+     - `**Reported:**` session/context
+     - `**Root cause:**` what the actual mistake was in the code
+     - `**Fix:**` what was changed to correct it
+     - `**Prevention:**` rule to avoid repeating it
+   - If the fix requires multiple attempts or a follow-up request refines the same bug, **update the existing entry** rather than adding a duplicate.
+
+3. **If the item is a new feature or refactor**, do not add a BUGS.md entry — those belong in commit messages and git history only.
+
+This keeps `BUGS.md` current without requiring a manual "update BUGS.md" request after every session.
+
 ---
 
 ## Adding New Models
