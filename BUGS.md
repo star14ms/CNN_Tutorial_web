@@ -71,3 +71,75 @@ Claude should **append new entries** whenever the user reports a bug or misimple
 **Root cause:** `renderDetailFormula` replaces `detailContent.innerHTML` each tick but did not scroll the terms list to the bottom afterward.
 **Fix:** After `detailContent.innerHTML = html`, added: `const termsList = detailContent.querySelector('.dp-terms-list'); if (termsList) termsList.scrollTop = termsList.scrollHeight;`
 **Prevention:** When a scrollable list is rebuilt from scratch on each animation tick, always explicitly scroll it to the desired position after rebuilding.
+
+---
+
+### B-09: RF line highlight broken after batching afterData into LineSegments
+**Reported:** Session 3 (after adding weight visualization)
+**Root cause:** `afterData` lines (weight→bias, bias→output) were built with `_buildLineSegments()` into a single `LineSegments` object. `_rfLines` was left empty because individual `THREE.Line` objects were never pushed. `highlightRFLine(index)` then read from an empty array and did nothing.
+**Fix:** `afterData` lines are always built as individual `new THREE.Line(...)` objects and pushed to `_rfLines[]`, one per line. Only `beforeData` (input→weight) uses the batched `_buildLineSegments` path.
+**Prevention:** Anything that needs per-line highlighting at runtime must be stored as a separate object reference. Batched `LineSegments` are opaque — individual line color/opacity cannot be changed after construction.
+
+---
+
+### B-10: Bias pixel rendered as sphere instead of flat pixel quad
+**Reported:** Session 3
+**Root cause:** Bias was visualized with `THREE.SphereGeometry`, inconsistent with how channel pixels and conv kernels are rendered (flat `PlaneGeometry` + `DataTexture`).
+**Fix:** Replaced with `_buildBiasPixel()` method: a `PlaneGeometry` quad with a `DataTexture` that maps the bias value through the viridis colormap, same pipeline as all other pixel quads.
+**Prevention:** All scalar/tensor values in this visualization are shown as flat `PlaneGeometry` + `DataTexture` quads. Never use 3D geometry (sphere, box) for data pixels.
+
+---
+
+### B-11: Bias pixel on last FC layer inflated to OUTPUT_PIXEL_SIZE
+**Reported:** Session 3
+**Root cause:** The bias pixel `pxSz` was computed as `(li === this._layerDefs.length - 1) ? OUTPUT_PIXEL_SIZE : PIXEL_SIZE`. `OUTPUT_PIXEL_SIZE = 64` is reserved for the large output label cells of the final layer. The bias pixel above those cells was also inheriting this size, making it 64 world-units — nearly as large as the output cell itself.
+**Fix:** Bias pixels always use `PIXEL_SIZE` regardless of layer. Only the output layer's actual channel quad uses `OUTPUT_PIXEL_SIZE`.
+**Prevention:** `OUTPUT_PIXEL_SIZE` applies only to the layer's primary channel quads in `_renderLayer`. Auxiliary elements (bias pixels, weight images) always use `PIXEL_SIZE`.
+
+---
+
+### B-12: Opacity of bias→output line hardcoded instead of data-driven
+**Reported:** Session 3
+**Root cause:** All three line segments (input→weight, weight→bias, bias→output) were hardcoded to `opacity: 0.9`. The intent was: input value drives input→weight opacity; input×weight drives weight→bias opacity; output activation drives bias→output opacity.
+**Fix:** Computed `biasToOutOpac = Math.max(0.05, outAbs[outIdx] / outMax) * 0.85` from the layer's raw activation data and used it for the bias→output line's opacity. The input→weight and weight→bias opacities were already factored through `_computeLineOpacities`.
+**Prevention:** Every line segment in the RF path should reflect the magnitude of the value flowing through it at that point. Hardcoded opacity ignores the actual data.
+
+---
+
+### B-13: FC1 weight/bias visualization unavailable (is1D check failed)
+**Reported:** Session 3 (implicit — clicking FC1 output pixels showed no weight matrix)
+**Root cause:** The `is1D` check (`prevDef.channels === 1 && prevDef.h === 1 && inF === prevDef.w`) was designed to detect a 1D-vector input and enable the FC weight matrix path. FC1's previous layer was MaxPool2 (`channels=64, h=7, w=7`), which is 3D — so `is1D` was always false for FC1, and the weight matrix was never shown.
+**Fix:** Inserted a `Flatten` layer (`channels=1, h=1, w=3136, dataKey='layer3'`) between MaxPool2 and FC1 in both v1 and v2 configs. Flatten's 1:1 pixel mapping was added to `_getContributingPixels` and `showLayerConnections`. Now `is1D` is true for FC1 and the full weight matrix + bias pixel path activates.
+**Prevention:** FC weight matrix visualization requires the previous layer to be a flat 1D vector. If the previous layer is spatial, a Flatten layer must exist in the config to bridge them.
+
+---
+
+### B-14: showLayerConnections for Conv — channel sampling skipped every other channel
+**Reported:** Session 3
+**Root cause:** `srcStep = Math.max(1, Math.ceil(sources.length / 16))` was applied to all layer types. For a 32-channel conv layer `srcStep = 2`, so only 16 of 32 channels were shown. Some output channels had zero lines drawn.
+**Fix:** `srcStep` and `dstStep` throttling is now conditional on `isFc`. Conv layers always use `srcStep = 1` (all channels, one center pixel each) and `dstStep = 1` (all contributing pixels per center pixel). Only FC layers apply the 16/64 throttle.
+**Prevention:** Sampling limits for FC layers (which have thousands of neurons) must not be blindly applied to conv layers (which have at most 64 channels and 9 contributing pixels each). Branch the logic on `isFc`.
+
+---
+
+### B-15: Line opacity encoded as color darkening (yellow→black) instead of transparency
+**Reported:** Session 3
+**Root cause:** `buildLineSegments` and `_buildLineSegments` encoded `opacity` by multiplying the yellow RGB values: `colArr = [opacity, 0.867*opacity, 0.267*opacity]`. Low-opacity lines appeared as dark/black lines rather than faint transparent yellow lines. Visually indistinguishable from invisible.
+**Fix:** Both helpers now bucket lines into 8 opacity tiers and create a separate `LineBasicMaterial` per tier with `transparent: true, opacity: alpha, depthWrite: false`. All lines render as yellow with varying alpha.
+**Prevention:** `THREE.LineBasicMaterial` with `vertexColors` can only tint by multiplying RGB. For true transparency, use `material.opacity` with `transparent: true`. Since one `LineSegments` shares one material, per-line alpha requires either separate objects or tier-bucketed materials.
+
+---
+
+### B-16: Layer name labels clipped for long names
+**Reported:** Session 3
+**Root cause:** `_addLayerLabel` created a canvas with fixed `width = 1024`. At `104px monospace`, names like `"Conv1 + BatchNorm + ReLU"` (~1550px rendered) overflowed the canvas and were clipped at both ends.
+**Fix:** Text width is now measured with `ctx.measureText(name).width` before finalizing `canvas.width = Math.max(512, Math.ceil(textW) + 80)`. Sprite scale uses a fixed world-unit height (`spriteH = 22`) and derives width proportionally from the canvas aspect ratio, so the rendered label maintains consistent text size regardless of name length.
+**Prevention:** Never use a fixed canvas width for text sprites. Always measure the text first and size the canvas to fit. Compute sprite scale from a fixed world height, not a fixed world width, to avoid distortion.
+
+---
+
+### B-17: Grid lines — high division count produced near-invisible dark lines
+**Reported:** Session 3
+**Root cause:** `GridHelper(6000, 120, 0x222244, 0x1a1a33)` — the grid color `0x1a1a33` is nearly identical to the scene background `0x1a1a2e`. At 120 divisions the grid appeared as a dark haze with no discernible individual lines. The user intended visible bright blue structural lines.
+**Fix:** `GridHelper(6000, 20, 0x334488, 0x334488)` — both center-line and grid-line colors set to the same visible blue; divisions reduced to 20 so each line is clearly distinct.
+**Prevention:** Grid colors must contrast with the scene background. Both `colorCenterLine` and `colorGrid` must be set intentionally; defaulting one to near-background color defeats the purpose. Use divisions ≤ 20 for legible individual lines.
