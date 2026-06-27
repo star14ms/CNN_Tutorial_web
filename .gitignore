@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# MNIST raw data (can be re-downloaded by torchvision)
+data/
+train/data/
+
+# Node
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db

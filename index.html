@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CNN Tutorial — MNIST Visualization</title>
+
+  <!-- KaTeX -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" />
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+
+  <link rel="stylesheet" href="src/css/style.css" />
+
+  <!-- Three.js -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+  <!-- ONNX Runtime Web -->
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/ort.min.js"></script>
+</head>
+<body>
+
+<header>
+  <h1>CNN Visualization — MNIST</h1>
+  <span class="subtitle">Client-side inference &amp; 3D layer visualization</span>
+</header>
+
+<div class="main-layout">
+  <!-- Left: drawing + prediction -->
+  <aside class="left-panel">
+    <h3>Input</h3>
+    <canvas id="draw-canvas" width="28" height="28"></canvas>
+    <button id="clear-btn" class="btn btn-secondary">Clear</button>
+
+    <div class="prediction-box">
+      <div class="pred-label">Predicted digit</div>
+      <div class="pred-digit" id="prediction">—</div>
+    </div>
+
+    <h3>Confidence</h3>
+    <div id="conf-bars"></div>
+
+    <h3>Model</h3>
+    <div id="model-selector">
+      <button class="btn model-btn active" data-model-id="v1" title="2 Conv + MaxPool + FC(128) — 99.20% test acc">Simple CNN</button>
+      <button class="btn model-btn" data-model-id="v2" title="4 Conv + MaxPool + BatchNorm +Dropout + FC(512) - 99.61% test acc">Deep CNN + BN + Dropout</button>
+    </div>
+
+    <h3>Controls</h3>
+    <div class="controls-hint">
+      <strong>Left drag</strong> — rotate<br>
+      <strong>Right drag</strong> — pan<br>
+      <strong>Scroll</strong> — zoom<br>
+      <strong>Click pixel</strong> — inspect &amp; show receptive field<br>
+      <strong>Right-click</strong> — clear selection
+    </div>
+
+    <h3>Animation</h3>
+    <button id="anim-toggle" class="btn btn-secondary full-width">Anim: OFF</button>
+    <div id="anim-speed-wrap" style="display:none">
+      <div class="speed-label">
+        <span>Formula speed</span>
+        <span id="anim-speed-val">400 ms</span>
+      </div>
+      <input type="range" id="anim-speed" min="0" max="6" step="1" value="3" />
+    </div>
+
+  </aside>
+
+  <!-- Right: Three.js 3D scene -->
+  <div class="right-panel">
+    <div id="three-container"></div>
+
+    <!-- Layer connections modal (upper-left of canvas) -->
+    <div id="layer-modal">
+      <div class="layer-modal-header">Layers</div>
+      <div id="layer-modal-list"></div>
+    </div>
+
+    <!-- Loading overlay -->
+    <div id="loading-overlay">
+      <div id="status">Initializing…</div>
+      <div class="progress-track">
+        <div id="progress-bar"></div>
+      </div>
+    </div>
+
+    <!-- Pixel detail panel -->
+    <div id="detail-panel">
+      <div class="detail-header">
+        <span>Pixel Detail</span>
+        <button id="close-detail" class="btn btn-xs btn-close">✕</button>
+      </div>
+      <div id="detail-content"></div>
+      <div id="detail-progress"></div>
+    </div>
+  </div>
+</div>
+
+
+<script type="module" src="src/js/main.js"></script>
+</body>
+</html>
