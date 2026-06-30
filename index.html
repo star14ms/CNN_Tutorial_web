@@ -23,8 +23,8 @@
   <span class="subtitle">Client-side inference &amp; 3D layer visualization</span>
   <nav class="dataset-nav">
     <button class="btn dataset-btn active" data-dataset="mnist">MNIST</button>
-    <button class="btn dataset-btn" data-dataset="fashion_mnist" disabled title="Coming soon">Fashion-MNIST</button>
-    <button class="btn dataset-btn" data-dataset="kuzushiji_mnist" disabled title="Coming soon">Kuzushiji-MNIST</button>
+    <button class="btn dataset-btn" data-dataset="fashion_mnist">Fashion-MNIST</button>
+    <button class="btn dataset-btn" data-dataset="kuzushiji_mnist">Kuzushiji-MNIST</button>
   </nav>
 </header>
 
@@ -32,15 +32,11 @@
   <!-- Left: drawing + prediction -->
   <aside class="left-panel">
     <h3>Input</h3>
-    <div class="input-mode-row">
-      <button class="btn btn-xs active" id="mode-draw" data-mode="draw">Draw</button>
-      <button class="btn btn-xs" id="mode-dataset" data-mode="dataset">Dataset</button>
-    </div>
     <canvas id="draw-canvas" width="28" height="28"></canvas>
-    <button id="clear-btn" class="btn btn-secondary">Clear</button>
+    <button id="clear-btn" class="btn btn-secondary full-width">Clear</button>
 
-    <!-- Dataset browser (shown when mode=dataset) -->
-    <div id="dataset-section" style="display:none">
+    <!-- Dataset browser -->
+    <div id="dataset-section">
       <div class="ds-split-row">
         <button class="btn btn-xs active" data-split="test">Test</button>
         <button class="btn btn-xs" data-split="train">Train</button>
@@ -49,6 +45,7 @@
         <input type="number" id="ds-index" class="ds-input" min="0" placeholder="Index" />
         <button id="ds-load" class="btn btn-xs btn-primary">Load</button>
       </div>
+      <div id="ds-status" class="ds-status"></div>
       <div class="ds-divider"></div>
       <div class="ds-row-label">Random</div>
       <div class="ds-filter-row">
@@ -57,16 +54,12 @@
         <button class="btn btn-xs" data-filter="incorrect">Wrong</button>
       </div>
       <div class="ds-digit-row">
-        <span class="ds-muted">Digit</span>
+        <span class="ds-muted" id="ds-digit-label">Label</span>
         <select id="ds-digit" class="ds-select">
           <option value="">All</option>
-          <option>0</option><option>1</option><option>2</option>
-          <option>3</option><option>4</option><option>5</option>
-          <option>6</option><option>7</option><option>8</option><option>9</option>
         </select>
       </div>
       <button id="ds-random" class="btn btn-secondary full-width">Random Sample</button>
-      <div id="ds-status" class="ds-status"></div>
       <div id="ds-true-label" class="ds-true-label" style="display:none"></div>
     </div>
 
@@ -105,7 +98,7 @@
     <button id="anim-toggle" class="btn btn-secondary full-width">Anim: OFF</button>
     <div id="anim-speed-wrap" style="display:none">
       <div class="speed-label">
-        <span>Formula speed</span>
+        <span>Animation speed</span>
         <span id="anim-speed-val">400 ms</span>
       </div>
       <input type="range" id="anim-speed" min="0" max="6" step="1" value="3" />

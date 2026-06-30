@@ -129,6 +129,7 @@ async function main() {
     $('loading-overlay').style.display = 'none';
 
     rebuildLayerModal(config);
+    viz.setDatasetConfig(DATASET_CONFIGS[currentDatasetId]);
     viz.setModelConfig(config);
     viz.setParameters(model.parameters);
     lastResult = null;
@@ -239,7 +240,7 @@ async function main() {
     try {
       const result = await model.inferAllLayers(pixels);
       lastResult = result;
-      viz.update(result, pixels, false);
+      viz.update(result, pixels, animMode, getSpeed());
       showPrediction(result.output.data);
       // Re-trigger selection with fresh data
       if (_selectedPixel) {
@@ -272,6 +273,42 @@ async function main() {
     renderEmpty();
   });
 
+  async function loadAccuracies(dsId) {
+    try {
+      const res = await fetch(`public/models/${dsId}/accuracies.json`);
+      if (!res.ok) return;
+      const acc = await res.json();
+      document.querySelectorAll('.model-btn').forEach(btn => {
+        const modelId = btn.dataset.modelId;
+        if (acc[modelId] != null) {
+          const base = btn.dataset.titleBase || btn.title.replace(/\s*—\s*[\d.]+%.*$/, '');
+          btn.dataset.titleBase = base;
+          btn.title = `${base} — ${acc[modelId].toFixed(2)}% test acc`;
+        }
+      });
+    } catch (_) { /* accuracies.json not available yet */ }
+  }
+
+  // ── Label selector ─────────────────────────────────────────────────────────
+  function updateLabelSelector(datasetId) {
+    const classLabels = DATASET_CONFIGS[datasetId].classLabels;
+    const sel = $('ds-digit');
+    while (sel.options.length > 1) sel.remove(1);
+    classLabels.forEach((lbl, i) => {
+      const opt = document.createElement('option');
+      opt.value = i;
+      opt.textContent = lbl;
+      sel.appendChild(opt);
+    });
+    // Measure longest label to set adaptive conf-label width
+    const probe = document.createElement('span');
+    probe.style.cssText = 'position:absolute;visibility:hidden;font-size:0.72rem;white-space:nowrap';
+    document.body.appendChild(probe);
+    const maxW = Math.max(...classLabels.map(l => { probe.textContent = l; return probe.offsetWidth; }));
+    document.body.removeChild(probe);
+    document.documentElement.style.setProperty('--conf-label-w', `${maxW + 4}px`);
+  }
+
   // ── Dataset selector ───────────────────────────────────────────────────────
   document.querySelectorAll('.dataset-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -280,8 +317,10 @@ async function main() {
       currentDatasetId = dsId;
       document.querySelectorAll('.dataset-btn').forEach(b =>
         b.classList.toggle('active', b.dataset.dataset === dsId));
+      updateLabelSelector(dsId);
       dataset.reset();
       drawing.clear();
+      await loadAccuracies(dsId);
       await loadModel(currentModelId);
     });
   });
@@ -304,20 +343,24 @@ async function main() {
     if (lastResult && lastPixels) viz.update(lastResult, lastPixels, false);
   });
 
+  const SPEED_LABELS = ['1/10×', '1/5×', '1/2×', '1×', '2×', '5×', '10×'];
   // Speed slider — apply immediately to current animation
   function updateSpeedLabel() {
-    $('anim-speed-val').textContent = ANIM_SPEEDS[parseInt(speedSlider.value)] + ' ms';
+    const idx = parseInt(speedSlider?.value ?? 3, 10);
+    $('anim-speed-val').textContent = SPEED_LABELS[Math.max(0, Math.min(6, idx))];
   }
   if (speedSlider) {
     updateSpeedLabel();
     speedSlider.addEventListener('input', () => {
       updateSpeedLabel();
+      const speed = getSpeed();
       if (_formulaTimer !== null) {
         // Restart from current step with new speed
         clearTimeout(_formulaTimer);
         _formulaTimer = null;
-        startFormulaAnim(getSpeed());
+        startFormulaAnim(speed);
       }
+      viz.setAnimationSpeed(speed);
     });
   }
 
@@ -644,15 +687,16 @@ async function main() {
 
   // ── Prediction display ─────────────────────────────────────────────────────
   function showPrediction(softmax) {
-    const probs  = Array.from(softmax);
-    const maxIdx = probs.indexOf(Math.max(...probs));
-    predEl.textContent = `${maxIdx}  (${(probs[maxIdx]*100).toFixed(1)}%)`;
+    const probs      = Array.from(softmax);
+    const maxIdx     = probs.indexOf(Math.max(...probs));
+    const classLabels = DATASET_CONFIGS[currentDatasetId].classLabels;
+    predEl.textContent = `${classLabels[maxIdx]}  (${(probs[maxIdx]*100).toFixed(1)}%)`;
     confBarsEl.innerHTML = '';
     probs.forEach((p, i) => {
       const row = document.createElement('div');
       row.className = 'conf-row' + (i === maxIdx ? ' top' : '');
       row.innerHTML = `
-        <span class="conf-label">${i}</span>
+        <span class="conf-label">${classLabels[i]}</span>
         <div class="conf-bar-wrap">
           <div class="conf-bar" style="width:${p*100}%"></div>
         </div>
@@ -664,25 +708,23 @@ async function main() {
   // ── Dataset browser ────────────────────────────────────────────────────────
   const dataset = new DatasetLoader();
 
-  let _dsMode    = 'draw';   // 'draw' | 'dataset'
   let _dsSplit   = 'test';
   let _dsFilter  = 'all';
 
-  const dsSection    = $('dataset-section');
   const dsIndexInput = $('ds-index');
   const dsLoadBtn    = $('ds-load');
   const dsRandomBtn  = $('ds-random');
   const dsStatus     = $('ds-status');
   const dsTrueLabel  = $('ds-true-label');
   const dsDigitSel   = $('ds-digit');
-  const drawCanvas   = $('draw-canvas');
 
   function setDsStatus(msg) { dsStatus.textContent = msg; }
 
   function showTrueLabel(idx, split) {
     const lbl = dataset.getLabel(split, idx);
     if (lbl !== null) {
-      dsTrueLabel.textContent = `True label: ${lbl}`;
+      const classLabels = DATASET_CONFIGS[currentDatasetId].classLabels;
+      dsTrueLabel.textContent = `True label: ${classLabels[lbl] ?? lbl}`;
       dsTrueLabel.style.display = 'block';
     } else {
       dsTrueLabel.style.display = 'none';
@@ -703,7 +745,8 @@ async function main() {
       setDsStatus(`Index out of range (0–${n - 1})`);
       return;
     }
-    const pixels = dataset.getImage(split, index);
+    setDsStatus(`Loading image…`);
+    const pixels = await dataset.getImage(split, index);
     showTrueLabel(index, split);
     setDsStatus(`${split} #${index}`);
 
@@ -722,7 +765,7 @@ async function main() {
     try {
       const result = await model.inferAllLayers(pixels);
       lastResult = result;
-      viz.update(result, pixels, false);
+      viz.update(result, pixels, animMode, getSpeed());
       showPrediction(result.output.data);
       if (_selectedPixel) {
         const { layerIdx, channel, x, y } = _selectedPixel;
@@ -733,20 +776,6 @@ async function main() {
       }
     } catch (err) { console.error('Inference error:', err); }
   }
-
-  // Mode toggle (Draw / Dataset)
-  document.querySelectorAll('[data-mode]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      _dsMode = btn.dataset.mode;
-      document.querySelectorAll('[data-mode]').forEach(b =>
-        b.classList.toggle('active', b.dataset.mode === _dsMode));
-      drawCanvas.style.display     = _dsMode === 'draw'    ? 'block' : 'none';
-      clearBtn.style.display       = _dsMode === 'draw'    ? '' : 'none';
-      dsSection.style.display      = _dsMode === 'dataset' ? 'flex' : 'none';
-      dsTrueLabel.style.display    = 'none';
-      if (_dsMode === 'draw') setDsStatus('');
-    });
-  });
 
   // Split toggle (Test / Train)
   document.querySelectorAll('[data-split]').forEach(btn => {
@@ -791,15 +820,21 @@ async function main() {
     // TP/FP filtering needs predictions cached
     if ((filter === 'correct' || filter === 'incorrect') && _dsSplit === 'test') {
       if (!dataset.hasPredictions(currentModelId)) {
-        setDsStatus('Computing predictions (10k images)…');
-        await dataset.computeTestPredictions(currentModelId,
-          async (pixels) => {
-            const result = await model.inferAllLayers(pixels);
-            const probs  = Array.from(result.output.data);
-            return probs.indexOf(Math.max(...probs));
-          },
-          (done, total) => setDsStatus(`Computing… ${done}/${total}`)
+        const dsConfig = DATASET_CONFIGS[currentDatasetId];
+        const loaded = await dataset.tryLoadPredictions(
+          currentModelId, `${dsConfig.modelsPath}/${currentModelId}`
         );
+        if (!loaded) {
+          setDsStatus('Computing predictions (10k images)…');
+          await dataset.computeTestPredictions(currentModelId,
+            async (pixels) => {
+              const result = await model.inferAllLayers(pixels);
+              const probs  = Array.from(result.output.data);
+              return probs.indexOf(Math.max(...probs));
+            },
+            (done, total) => setDsStatus(`Computing… ${done}/${total}`)
+          );
+        }
       }
     }
 
@@ -813,6 +848,8 @@ async function main() {
   });
 
   // ── Initial model load ─────────────────────────────────────────────────────
+  updateLabelSelector(DEFAULT_DATASET_ID);
+  await loadAccuracies(DEFAULT_DATASET_ID);
   await loadModel(DEFAULT_MODEL_ID);
 }
 

@@ -15,6 +15,10 @@ export class Visualization {
     this._init();
   }
 
+  setDatasetConfig(datasetConfig) {
+    this.layerRenderer.setDatasetConfig(datasetConfig);
+  }
+
   /** Switch to a new model config — disposes current layers and rebuilds renderer. */
   setModelConfig(config) {
     this._modelConfig = config;
@@ -78,7 +82,7 @@ export class Visualization {
 
   update(layerData, inputPixels, animated = false, animDelay = 600) {
     if (animated) {
-      this.layerRenderer.renderAnimated(layerData, inputPixels, animDelay);
+      this.layerRenderer.renderAnimatedPerLayer(layerData, inputPixels, animDelay);
     } else {
       this.layerRenderer.render(layerData, inputPixels);
     }
@@ -131,6 +135,10 @@ export class Visualization {
 
   setParameters(params) {
     this.layerRenderer.setParameters(params);
+  }
+
+  setAnimationSpeed(speedMs) {
+    this.layerRenderer.setPerLayerSpeed(speedMs);
   }
 
   setLayerVisible(li, visible) {

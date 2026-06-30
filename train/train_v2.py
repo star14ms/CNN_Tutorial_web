@@ -247,7 +247,7 @@ def train(dataset_id='mnist'):
 
 def export_onnx(submodel, path, input_shape=(1, 1, 28, 28)):
     dummy = torch.zeros(*input_shape)
-    submodel.eval()
+    submodel.cpu().eval()
     torch.onnx.export(
         submodel, dummy, path,
         opset_version=11,

@@ -59,7 +59,13 @@ header .subtitle { font-size: 0.78rem; color: var(--muted); }
   gap: 10px;
   overflow-y: auto;
   overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: #0a1220 transparent;
 }
+.left-panel::-webkit-scrollbar { width: 4px; }
+.left-panel::-webkit-scrollbar-track { background: transparent; }
+.left-panel::-webkit-scrollbar-thumb { background: #0a1220; border-radius: 2px; }
+.left-panel::-webkit-scrollbar-thumb:hover { background: #070d17; }
 .left-panel h3 {
   font-size: 0.72rem;
   text-transform: uppercase;
@@ -224,7 +230,7 @@ header .subtitle { font-size: 0.78rem; color: var(--muted); }
 .conf-row { display: flex; align-items: center; gap: 5px; font-size: 0.72rem; }
 .conf-row.top .conf-label,
 .conf-row.top .conf-pct { color: var(--accent); font-weight: 700; }
-.conf-label { width: 12px; text-align: right; }
+.conf-label { width: var(--conf-label-w, 62px); text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
 .conf-pct   { width: 36px; text-align: right; color: var(--muted); }
 .conf-bar-wrap { flex: 1; background: var(--border); border-radius: 3px; height: 7px; overflow: hidden; }
 .conf-bar { height: 100%; background: var(--muted); border-radius: 3px; transition: width 0.25s ease; }

@@ -15,6 +15,7 @@ export const MODEL_CONFIGS = {
     label:       'Linear',
     description: 'Linear(784→512→10) — 98.59% acc',
     totalParams: 407050,
+    parametersFile: 'parameters.json',
     torchinfo: {
       multAddsM:    0.41,
       fwdBwdSizeMB: 0.00,
@@ -35,7 +36,7 @@ export const MODEL_CONFIGS = {
           { type: 'Dropout(0.5)',    params: 0      },
         ]},
       { name: 'FC2 + Softmax',  channels: 10, h:  1, w:   1, dataKey: 'output',
-        channelLabels: ['0','1','2','3','4','5','6','7','8','9'],
+        channelLabels: '__classes__',
         sublayers: [
           { type: 'Linear(512→10)', params: 5130 },
           { type: 'Softmax',        params: 0    },
@@ -56,6 +57,7 @@ export const MODEL_CONFIGS = {
     label:       'Simple CNN',
     description: '2 Conv + MaxPool + FC(128) — 99.20% acc',
     totalParams: 421642,
+    parametersFile: 'parameters.json',
     modelFiles: [
       { name: 'layer0', file: 'layer0.onnx' },
       { name: 'layer1', file: 'layer1.onnx' },
@@ -91,7 +93,7 @@ export const MODEL_CONFIGS = {
           { type: 'ReLU',             params: 0      },
         ]},
       { name: 'FC2 + Softmax', channels: 10, h:  1, w:  1, dataKey: 'output',
-        channelLabels: ['0','1','2','3','4','5','6','7','8','9'],
+        channelLabels: '__classes__',
         sublayers: [
           { type: 'Linear(128→10)', params: 1290 },
           { type: 'Softmax',        params: 0    },
@@ -116,6 +118,7 @@ export const MODEL_CONFIGS = {
     label:       'Simple CNN + BN',
     description: '2 Conv + MaxPool + BatchNorm + Dropout + FC(128) — 99.30% acc',
     totalParams: 421834,
+    parametersFile: 'parameters.json',
     torchinfo: {
       multAddsM:    4.28,
       fwdBwdSizeMB: 0.60,
@@ -160,7 +163,7 @@ export const MODEL_CONFIGS = {
           { type: 'Dropout(0.5)',     params: 0      },
         ]},
       { name: 'FC2 + Softmax',                channels: 10, h:  1, w:    1, dataKey: 'output',
-        channelLabels: ['0','1','2','3','4','5','6','7','8','9'],
+        channelLabels: '__classes__',
         sublayers: [
           { type: 'Linear(128→10)', params: 1290 },
           { type: 'Softmax',        params: 0    },
@@ -185,6 +188,7 @@ export const MODEL_CONFIGS = {
     label:       'Deep CNN (small)',
     description: '4 Conv + MaxPool + BatchNorm + Dropout + FC(256) — 99.56% acc',
     totalParams: 420794,
+    parametersFile: 'parameters.json',
     torchinfo: {
       multAddsM:    5.07,
       fwdBwdSizeMB: 0.60,
@@ -243,7 +247,7 @@ export const MODEL_CONFIGS = {
           { type: 'Dropout(0.5)',     params: 0      },
         ]},
       { name: 'FC2 + Softmax',               channels: 10, h:  1, w:    1, dataKey: 'output',
-        channelLabels: ['0','1','2','3','4','5','6','7','8','9'],
+        channelLabels: '__classes__',
         sublayers: [
           { type: 'Linear(256→10)', params: 2570 },
           { type: 'Softmax',        params: 0    },
@@ -323,7 +327,7 @@ export const MODEL_CONFIGS = {
           { type: 'Dropout(0.5)',     params: 0       },
         ]},
       { name: 'FC2 + Softmax',      channels: 10, h:  1, w:  1,  dataKey: 'output',
-        channelLabels: ['0','1','2','3','4','5','6','7','8','9'],
+        channelLabels: '__classes__',
         sublayers: [
           { type: 'Linear(512→10)', params: 5130 },
           { type: 'Softmax',        params: 0    },
@@ -350,6 +354,7 @@ export const MODEL_CONFIGS = {
     label:       'Vision Transformer',
     description: 'ViT (patch=4, embed=128, 4 blocks, 8 heads) — 97.79% acc',
     totalParams: 344330,
+    parametersFile: 'parameters.json',
     torchinfo: {
       multAddsM:    3.40,
       fwdBwdSizeMB: 1.13,
@@ -403,7 +408,7 @@ export const MODEL_CONFIGS = {
           { type: 'FFN(128→64→128) + BN + Dropout',  params: 16960 },
         ]},
       { name: 'CLS → Softmax',       channels: 10, h:  1, w:   1, dataKey: 'output',
-        channelLabels: ['0','1','2','3','4','5','6','7','8','9'],
+        channelLabels: '__classes__',
         sublayers: [
           { type: 'LayerNorm',       params: 256  },
           { type: 'Linear(128→10)', params: 1290 },

@@ -86,7 +86,7 @@ class TransformerBlock(nn.Module):
 
         x_norm = self.norm2(x)
         # BatchNorm1d expects (B, C) or (B, C, L) — reshape for (B*S, D)
-        x_flat = x_norm.reshape(B * S, D)
+        x_flat = x_norm.reshape(-1, D)
         ffn_out = self.ffn(x_flat).reshape(B, S, D)
         x = x + ffn_out
         return x

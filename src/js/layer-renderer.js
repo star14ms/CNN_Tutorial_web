@@ -2,6 +2,21 @@ import { normalizeActivations, gridLayout } from './utils.js';
 
 const THREE = window.THREE;
 
+/** Decode a parameter entry — supports base64 binary and plain JS arrays (legacy). */
+function _decodeParams(entry) {
+  if (!entry) return entry;
+  const decode = v => {
+    if (typeof v === 'string') {
+      const bin = atob(v);
+      const buf = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+      return new Float32Array(buf.buffer);
+    }
+    return v; // already an array (legacy format)
+  };
+  return { ...entry, data: decode(entry.data), bias: entry.bias ? decode(entry.bias) : undefined };
+}
+
 const PIXEL_SIZE        = 64 / 28; // world units per pixel (all layers except output)
 const OUTPUT_PIXEL_SIZE = 64;       // each output cell is larger for label visibility
 const GAP           = 4.0;    // gap between channel planes
@@ -38,6 +53,11 @@ export class LayerRenderer {
     this._layerData   = null;
     this._inputPixels = null;
     this._layerVisible = Array(this._layerDefs.length).fill(true);
+  }
+
+  /** Store dataset config for resolving class labels. */
+  setDatasetConfig(datasetConfig) {
+    this._classLabels = datasetConfig.classLabels || ['0','1','2','3','4','5','6','7','8','9'];
   }
 
   /** Replace the active model config and rebuild if data is present. */
@@ -91,6 +111,264 @@ export class LayerRenderer {
       this._animTimer = setTimeout(next, delayMs);
     };
     next();
+  }
+
+  /** Per-layer animated inference: input visible → connection lines 2s → reveal layer → repeat. */
+  renderAnimatedPerLayer(layerData, inputPixels, speedMs = 100) {
+    this._layerData      = layerData;
+    this._inputPixels    = inputPixels;
+    this._perLayerSpeedMs = speedMs;
+    this._perLayerNextFn  = null;
+    this.dispose();
+    this._layerAnimEpoch = (this._layerAnimEpoch || 0) + 1;
+    const animEpoch = this._layerAnimEpoch;
+
+    // Build all layers; layers 1+ start visible but transparent (will fade in)
+    const payloads = this._buildLayerPayloads();
+    payloads.forEach((p, li) => {
+      this._buildLayer(p, li);
+      if (li > 0) {
+        if (this.groups[li])        { this.groups[li].visible = true; }
+        if (this._labelSprites[li]) { this._labelSprites[li].visible = true; }
+        this._setGroupOpacity(li, 0);
+      }
+    });
+
+    let i = 1;
+    const next = () => {
+      if (this._layerAnimEpoch !== animEpoch) return;
+      if (i >= payloads.length) { this._perLayerNextFn = null; return; }
+      const li = i;
+      this._perLayerNextFn = null;  // now in rAF phase, not waiting
+      // Fade in this layer's images concurrently with line drawing
+      this._fadeInGroup(li, animEpoch);
+      // Draw connection lines; when fully drawn, fade them out then advance
+      this._showLayerConnectionsAnimated(li, () => {
+        if (this._layerAnimEpoch !== animEpoch) return;
+        this._fadeOutRF(() => {
+          if (this._layerAnimEpoch !== animEpoch) return;
+          i++;
+          // Store next fn so speed slider can reschedule this wait
+          const scheduleNext = () => {
+            const waitMs = 1000 * (this._perLayerSpeedMs / 100);
+            this._perLayerNextFn = next;
+            this._animTimer = setTimeout(next, waitMs);
+          };
+          scheduleNext();
+        });
+      });
+    };
+    // Initial wait
+    const initWait = 1000 * (this._perLayerSpeedMs / 100);
+    this._perLayerNextFn = next;
+    this._animTimer = setTimeout(next, initWait);
+  }
+
+  /** Update speed mid-animation: rAF ticks read _perLayerSpeedMs dynamically;
+   *  if currently in a setTimeout wait, cancel and reschedule with the new speed. */
+  setPerLayerSpeed(speedMs) {
+    this._perLayerSpeedMs = speedMs;
+    if (this._animTimer !== null && this._perLayerNextFn) {
+      clearTimeout(this._animTimer);
+      this._animTimer = null;
+      const fn = this._perLayerNextFn;
+      const newWait = 1000 * (speedMs / 100);
+      this._animTimer = setTimeout(fn, newWait);
+    }
+  }
+
+  /** Set opacity on all meshes/sprites in a layer group. */
+  _setGroupOpacity(li, opacity) {
+    const group = this.groups[li];
+    if (group) group.traverse(o => {
+      if (o.isMesh || o.isLine || o.isLineSegments) {
+        o.material.transparent = true;
+        o.material.opacity = opacity;
+        o.material.needsUpdate = true;
+      }
+    });
+    const sprite = this._labelSprites?.[li];
+    if (sprite?.material) {
+      sprite.material.transparent = true;
+      sprite.material.opacity = opacity;
+      sprite.material.needsUpdate = true;
+    }
+  }
+
+  /** Animate group opacity 0→1. Duration read dynamically from _perLayerSpeedMs each frame. */
+  _fadeInGroup(li, animEpoch) {
+    const start = performance.now();
+    const tick = () => {
+      if (this._layerAnimEpoch !== animEpoch) return;
+      const duration = 2000 * (this._perLayerSpeedMs / 100);
+      const t = Math.min(1, (performance.now() - start) / duration);
+      this._setGroupOpacity(li, t);
+      if (t < 1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
+
+  /** Fade out the current RF group's line material. Duration read dynamically each frame. */
+  _fadeOutRF(onDone) {
+    const group = this._rfGroup;
+    if (!group) { onDone?.(); return; }
+    let mat = null;
+    group.traverse(o => { if (o.material && !mat) mat = o.material; });
+    if (!mat) { this._clearRF(); onDone?.(); return; }
+    const epoch = this._rfEpoch;
+    const startOpacity = mat.opacity;
+    const start = performance.now();
+    const tick = () => {
+      if (this._rfEpoch !== epoch) return;
+      const duration = 1000 * (this._perLayerSpeedMs / 100);
+      const t = Math.min(1, (performance.now() - start) / duration);
+      mat.opacity = startOpacity * (1 - t);
+      if (t < 1) {
+        requestAnimationFrame(tick);
+      } else {
+        this._clearRF();
+        onDone?.();
+      }
+    };
+    requestAnimationFrame(tick);
+  }
+
+  /** Collect all {src, dst} line pairs for a layer's connections (no Three.js objects). */
+  _gatherConnectionLines(li) {
+    const lines = [];
+    const conn  = this._connectivity[li];
+    const def   = this._layerDefs[li];
+    if (!def) return lines;
+
+    if (conn?.type === 'pool') {
+      for (let c = 0; c < def.channels; c++) {
+        for (let py = 0; py < def.h; py++) {
+          for (let px = 0; px < def.w; px++) {
+            const srcPos = this._getPixelWorldPos(li, c, px, py);
+            if (!srcPos) continue;
+            const winners = this._getMaxPoolPixel(this._getContributingPixels(li, c, px, py), conn);
+            for (const w of winners) {
+              const dstPos = this._getPixelWorldPos(w.li, w.c, w.px, w.py);
+              if (dstPos) lines.push({ src: srcPos.clone(), dst: dstPos.clone() });
+            }
+          }
+        }
+      }
+      return lines;
+    }
+
+    if (conn?.type === 'flatten') {
+      const step = Math.max(1, Math.floor(def.w / 128));
+      for (let px = 0; px < def.w; px += step) {
+        const srcPos = this._getPixelWorldPos(li, 0, px, 0);
+        if (!srcPos) continue;
+        const contributing = this._getContributingPixels(li, 0, px, 0);
+        for (const p of contributing) {
+          const dstPos = this._getPixelWorldPos(p.li, p.c, p.px, p.py);
+          if (dstPos) lines.push({ src: srcPos.clone(), dst: dstPos.clone() });
+        }
+      }
+      return lines;
+    }
+
+    if (conn) {
+      const isFc = conn.type === 'fc';
+      const sources = [];
+      if (isFc) {
+        for (let c = 0; c < def.channels; c++)
+          for (let py = 0; py < def.h; py++)
+            for (let px = 0; px < def.w; px++)
+              sources.push({ c, px, py });
+      } else {
+        const cx = Math.floor(def.w / 2);
+        const cy = Math.floor(def.h / 2);
+        for (let c = 0; c < def.channels; c++)
+          sources.push({ c, px: cx, py: cy });
+      }
+      const srcStep = isFc ? Math.max(1, Math.ceil(sources.length / 16)) : 1;
+      for (let si = 0; si < sources.length; si += srcStep) {
+        const { c, px, py } = sources[si];
+        const srcPos = this._getPixelWorldPos(li, c, px, py);
+        if (!srcPos) continue;
+        const contributing = this._getContributingPixels(li, c, px, py);
+        const dstStep = isFc ? Math.max(1, Math.ceil(contributing.length / 64)) : 1;
+        for (let k = 0; k < contributing.length; k += dstStep) {
+          const dstPos = this._getPixelWorldPos(contributing[k].li, contributing[k].c, contributing[k].px, contributing[k].py);
+          if (dstPos) lines.push({ src: srcPos.clone(), dst: dstPos.clone() });
+        }
+      }
+      return lines;
+    }
+
+    // Dense (no connectivity entry) — lines between prev and current layer samples
+    const prevLi  = li - 1;
+    const prevDef = this._layerDefs[prevLi];
+    if (!prevDef) return lines;
+    const isOutput = li === this._layerDefs.length - 1;
+    const fromStep = Math.max(1, Math.ceil(def.channels / 8));
+    const toStep   = Math.max(1, Math.ceil((prevDef.channels || 1) / 8));
+    for (let c = 0; c < def.channels; c += fromStep) {
+      const srcPos = this._getPixelWorldPos(li, c, 0, 0);
+      if (!srcPos) continue;
+      const prevChannels = prevDef.channels || 1;
+      for (let pc = 0; pc < prevChannels; pc += toStep) {
+        const dstPos = this._getPixelWorldPos(prevLi, pc, 0, 0);
+        if (dstPos) lines.push({ src: srcPos.clone(), dst: dstPos.clone() });
+      }
+    }
+    return lines;
+  }
+
+  /** Draw connection lines for layer li progressively. Duration read dynamically each frame. */
+  _showLayerConnectionsAnimated(li, onDone) {
+    this._clearRF();
+    const lines = this._gatherConnectionLines(li);
+
+    if (!lines.length) {
+      onDone?.();
+      return;
+    }
+
+    // Pre-allocate geometry: start at dst (previous layer), grow toward src (current layer)
+    const posArr  = new Float32Array(lines.length * 6);
+    for (let i = 0; i < lines.length; i++) {
+      const { dst } = lines[i];
+      posArr[i * 6]     = dst.x; posArr[i * 6 + 1] = dst.y; posArr[i * 6 + 2] = dst.z;
+      posArr[i * 6 + 3] = dst.x; posArr[i * 6 + 4] = dst.y; posArr[i * 6 + 5] = dst.z;
+    }
+    const geo     = new THREE.BufferGeometry();
+    const posAttr = new THREE.BufferAttribute(posArr, 3);
+    posAttr.setUsage(THREE.DynamicDrawUsage);
+    geo.setAttribute('position', posAttr);
+    const mat = new THREE.LineBasicMaterial({ color: 0xffdd44, transparent: true, opacity: 0.6, depthWrite: false });
+    const ls  = new THREE.LineSegments(geo, mat);
+    ls.frustumCulled = false;
+
+    const group = new THREE.Group();
+    group.add(ls);
+    this.scene.add(group);
+    this._rfGroup = group;
+
+    const start = performance.now();
+    const epoch = this._rfEpoch;
+    const tick  = () => {
+      if (this._rfEpoch !== epoch) return;
+      const duration = 2000 * (this._perLayerSpeedMs / 100);
+      const t = Math.min(1, (performance.now() - start) / duration);
+      for (let i = 0; i < lines.length; i++) {
+        const { src, dst } = lines[i];
+        posArr[i * 6 + 3] = dst.x + (src.x - dst.x) * t;
+        posArr[i * 6 + 4] = dst.y + (src.y - dst.y) * t;
+        posArr[i * 6 + 5] = dst.z + (src.z - dst.z) * t;
+      }
+      posAttr.needsUpdate = true;
+      if (t < 1) {
+        requestAnimationFrame(tick);
+      } else {
+        onDone?.();
+      }
+    };
+    requestAnimationFrame(tick);
   }
 
   setLayerVisible(li, visible) {
@@ -1002,7 +1280,10 @@ export class LayerRenderer {
       this.meshByLayer[li][c] = mesh;
 
       if (def.channelLabels) {
-        this._addCellLabel(group, def.channelLabels[c], data[c], cx, cz, planeW, planeH, isOutput);
+        const labels = def.channelLabels === '__classes__'
+          ? (this._classLabels || ['0','1','2','3','4','5','6','7','8','9'])
+          : def.channelLabels;
+        this._addCellLabel(group, labels[c], data[c], cx, cz, planeW, planeH, isOutput);
       }
     }
 
@@ -1050,7 +1331,13 @@ export class LayerRenderer {
     canvas.height = sz;
     const ctx    = canvas.getContext('2d');
     ctx.clearRect(0, 0, sz, sz);
-    ctx.font      = isOutput ? `bold ${Math.round(sz * 0.50)}px monospace` : 'bold 120px monospace';
+    const maxLabelW = sz * 0.90;
+    let labelFontSize = isOutput ? Math.round(sz * 0.50) : 120;
+    ctx.font = `bold ${labelFontSize}px sans-serif`;
+    while (ctx.measureText(digit).width > maxLabelW && labelFontSize > 16) {
+      labelFontSize = Math.round(labelFontSize * 0.85);
+      ctx.font = `bold ${labelFontSize}px sans-serif`;
+    }
     ctx.fillStyle = '#ffdd44';
     ctx.textAlign = 'center';
     ctx.fillText(digit, sz / 2, Math.round(sz * 0.54));
@@ -1194,9 +1481,9 @@ export class LayerRenderer {
     for (let li = 0; li < this._connectivity.length; li++) {
       const t = this._connectivity[li]?.type;
       if (t === 'conv' && paramsObj.convs?.[convIdx] !== undefined) {
-        this._convLayerWeights[li] = paramsObj.convs[convIdx++];
+        this._convLayerWeights[li] = _decodeParams(paramsObj.convs[convIdx++]);
       } else if (t === 'fc' && paramsObj.linears?.[fcIdx] !== undefined) {
-        this._linearParams[li] = paramsObj.linears[fcIdx++];
+        this._linearParams[li] = _decodeParams(paramsObj.linears[fcIdx++]);
       }
     }
   }
