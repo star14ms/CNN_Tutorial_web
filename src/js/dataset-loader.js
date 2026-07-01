@@ -2,8 +2,11 @@
  * DatasetLoader — browser-side loader for dataset binary files.
  *
  * Binary format (produced by train/export_dataset.py):
- *   {split}_images.bin  — N × 784 uint8 (raw pixel 0-255)
- *   {split}_labels.bin  — N uint8 (digit 0-9)
+ *   {split}_images.bin  — N × pixelsPerImage uint8 (raw pixel 0-255, HWC order)
+ *   {split}_labels.bin  — N uint8
+ *
+ * For grayscale 28×28 datasets: pixelsPerImage = 784 (H×W)
+ * For RGB 32×32 datasets:       pixelsPerImage = 3072 (H×W×C)
  *
  * Labels are loaded eagerly (small: ~10 KB for test).
  * Images are loaded lazily — single images via HTTP Range requests,
@@ -15,15 +18,18 @@ export class DatasetLoader {
   }
 
   reset() {
-    this._dataPath   = { test: null, train: null };
-    this._images     = { test: null, train: null };   // full buffer, loaded on demand
-    this._labels     = { test: null, train: null };
-    this._loading    = { test: false, train: false };
-    this._imageCache = { test: {}, train: {} };       // index → Float32Array
-    this._predictions = {};
-    this._predicting  = false;
-    this._datasetId   = null;
+    this._dataPath        = { test: null, train: null };
+    this._images          = { test: null, train: null };   // full buffer, loaded on demand
+    this._labels          = { test: null, train: null };
+    this._loading         = { test: false, train: false };
+    this._imageCache      = { test: {}, train: {} };       // index → Float32Array
+    this._predictions     = {};
+    this._predicting      = false;
+    this._datasetId       = null;
+    this._pixelsPerImage  = 784;   // updated on load()
   }
+
+  get pixelsPerImage() { return this._pixelsPerImage; }
 
   size(split) {
     const labels = this._labels[split];
@@ -40,6 +46,9 @@ export class DatasetLoader {
     if (this._datasetId !== datasetConfig.id) this.reset();
     this._datasetId = datasetConfig.id;
     this._dataPath[split] = `${datasetConfig.dataPath}/${split}`;
+    const C = datasetConfig.inChannels ?? 1;
+    const S = datasetConfig.imgSize ?? 28;
+    this._pixelsPerImage = C * S * S;
 
     if (this.isLoaded(split) || this._loading[split]) return;
     this._loading[split] = true;
@@ -51,28 +60,29 @@ export class DatasetLoader {
 
   /** Load the full images buffer for this split (needed for prediction sweeps). */
   async _loadFullImages(split) {
-    if (this._images[split]) return;
+    if (this._images[split] !== null) return;
     const res = await fetch(`${this._dataPath[split]}_images.bin`);
     if (!res.ok) throw new Error(`Failed to fetch images for ${split}`);
     this._images[split] = new Uint8Array(await res.arrayBuffer());
   }
 
   /**
-   * Returns Float32Array(784) in [0,1].
+   * Returns Float32Array(pixelsPerImage) in [0,1].
    * Uses HTTP Range request for a single image; falls back to full buffer.
    * Caches the result to avoid duplicate fetches.
    */
   async getImage(split, index) {
     if (this._imageCache[split][index]) return this._imageCache[split][index];
 
+    const ppi = this._pixelsPerImage;
     let raw;
     if (this._images[split]) {
       // Full buffer already loaded (e.g. during prediction sweep)
-      const offset = index * 784;
-      raw = this._images[split].subarray(offset, offset + 784);
+      const offset = index * ppi;
+      raw = this._images[split].subarray(offset, offset + ppi);
     } else {
-      const start = index * 784;
-      const end   = start + 783;
+      const start = index * ppi;
+      const end   = start + ppi - 1;
       const res   = await fetch(`${this._dataPath[split]}_images.bin`, {
         headers: { Range: `bytes=${start}-${end}` },
       });
@@ -81,14 +91,14 @@ export class DatasetLoader {
       } else if (res.ok) {
         // Server doesn't support Range — cache the full buffer and extract
         this._images[split] = new Uint8Array(await res.arrayBuffer());
-        raw = this._images[split].subarray(start, start + 784);
+        raw = this._images[split].subarray(start, start + ppi);
       } else {
         throw new Error(`Failed to fetch image ${index} for ${split}`);
       }
     }
 
-    const out = new Float32Array(784);
-    for (let i = 0; i < 784; i++) out[i] = raw[i] / 255;
+    const out = new Float32Array(ppi);
+    for (let i = 0; i < ppi; i++) out[i] = raw[i] / 255;
     this._imageCache[split][index] = out;
     return out;
   }

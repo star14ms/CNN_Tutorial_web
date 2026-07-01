@@ -143,7 +143,9 @@ async function main() {
   }
 
   async function renderEmpty() {
-    const blankPixels = new Float32Array(784);
+    const cfg = DATASET_CONFIGS[currentDatasetId];
+    const C = cfg.inChannels ?? 1, S = cfg.imgSize ?? 28;
+    const blankPixels = new Float32Array(C * S * S);
     try {
       const result = await model.inferAllLayers(blankPixels);
       lastResult = result;
@@ -751,13 +753,22 @@ async function main() {
     setDsStatus(`${split} #${index}`);
 
     // Paint the dataset image onto the draw canvas for visual feedback
-    const imgData = new ImageData(28, 28);
-    for (let i = 0; i < 784; i++) {
-      const v = Math.round(pixels[i] * 255);
-      imgData.data[i * 4]     = v;
-      imgData.data[i * 4 + 1] = v;
-      imgData.data[i * 4 + 2] = v;
-      imgData.data[i * 4 + 3] = 255;
+    const cfg = DATASET_CONFIGS[currentDatasetId];
+    const C = cfg.inChannels ?? 1, S = cfg.imgSize ?? 28;
+    const imgData = new ImageData(S, S);
+    const hw = S * S;
+    for (let p = 0; p < hw; p++) {
+      if (C === 1) {
+        const v = Math.round(pixels[p] * 255);
+        imgData.data[p * 4]     = v;
+        imgData.data[p * 4 + 1] = v;
+        imgData.data[p * 4 + 2] = v;
+      } else {
+        imgData.data[p * 4]     = Math.round(pixels[p * C]     * 255);
+        imgData.data[p * 4 + 1] = Math.round(pixels[p * C + 1] * 255);
+        imgData.data[p * 4 + 2] = Math.round(pixels[p * C + 2] * 255);
+      }
+      imgData.data[p * 4 + 3] = 255;
     }
     drawing.loadImageData(imgData);
 

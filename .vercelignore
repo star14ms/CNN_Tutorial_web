@@ -1,1 +1,7 @@
 train/
+public/data/cifar10/train_images.bin
+public/data/cifar10/train_labels.bin
+public/data/cifar100/train_images.bin
+public/data/cifar100/train_labels.bin
+public/data/svhn/train_images.bin
+public/data/svhn/train_labels.bin

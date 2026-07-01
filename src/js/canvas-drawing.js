@@ -115,8 +115,12 @@ export class DrawingCanvas {
     return out;
   }
 
-  // Load an external ImageData (28×28) into the canvas (used by dataset browser)
+  // Load an external ImageData into the canvas (used by dataset browser; supports any size)
   loadImageData(imgData) {
+    if (this.off.width !== imgData.width || this.off.height !== imgData.height) {
+      this.off.width  = imgData.width;
+      this.off.height = imgData.height;
+    }
     this.offCtx.putImageData(imgData, 0, 0);
     this._syncDisplay();
   }

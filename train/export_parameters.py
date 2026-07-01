@@ -28,7 +28,7 @@ import onnx
 import onnx.numpy_helper
 import numpy as np
 
-DATASETS  = ['mnist', 'fashion_mnist', 'kuzushiji_mnist']
+DATASETS  = ['mnist', 'fashion_mnist', 'kuzushiji_mnist', 'cifar10', 'cifar100', 'svhn']
 MODEL_IDS = ['linear', 'v1', 'v1bn', 'v2small', 'v2', 'vit']
 
 
@@ -75,10 +75,10 @@ def extract_parameters(onnx_path: str) -> dict:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', choices=DATASETS, help='Process one dataset only')
+    parser.add_argument('--dataset', choices=DATASETS + ['all'], default='all', help='Process one dataset only (default: all)')
     args = parser.parse_args()
 
-    datasets = [args.dataset] if args.dataset else DATASETS
+    datasets = DATASETS if args.dataset == 'all' else [args.dataset]
 
     for ds in datasets:
         print(f'\n=== {ds} ===')

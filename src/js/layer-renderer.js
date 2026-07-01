@@ -55,9 +55,11 @@ export class LayerRenderer {
     this._layerVisible = Array(this._layerDefs.length).fill(true);
   }
 
-  /** Store dataset config for resolving class labels. */
+  /** Store dataset config for resolving class labels and input shape. */
   setDatasetConfig(datasetConfig) {
-    this._classLabels = datasetConfig.classLabels || ['0','1','2','3','4','5','6','7','8','9'];
+    this._classLabels  = datasetConfig.classLabels || ['0','1','2','3','4','5','6','7','8','9'];
+    this._inChannels   = datasetConfig.inChannels ?? 1;
+    this._inputImgSize = datasetConfig.imgSize ?? 28;
   }
 
   /** Replace the active model config and rebuild if data is present. */
@@ -1190,17 +1192,32 @@ export class LayerRenderer {
     const ld = this._layerData;
     const ip = this._inputPixels;
     return this._layerDefs.map((def, li) => {
-      let data;
+      let data, dims;
       if (li === 0 || def.dataKey === '__input__') {
         data = ip;
       } else if (def.dataKey) {
-        data = ld?.[def.dataKey]?.data;
+        const entry = ld?.[def.dataKey];
+        data = entry?.data;
+        dims = entry?.dims;
       } else {
         // Fallback positional map for configs without dataKey (7-layer legacy)
         const keys = ['layer0','layer1','layer2','layer3','layer4','output'];
-        data = ld?.[keys[li - 1]]?.data;
+        const entry = ld?.[keys[li - 1]];
+        data = entry?.data;
+        dims = entry?.dims;
       }
-      return { def, data: data ?? new Float32Array(def.channels * def.h * def.w) };
+      // For output layer with more classes than the hardcoded config (e.g. CIFAR-100 has 100),
+      // patch def.channels so connectivity/highlight code uses the real class count.
+      let patchedDef = def;
+      if (def.channelLabels === '__classes__') {
+        const numClasses = dims?.length === 2
+          ? Number(dims[1])
+          : (this._classLabels?.length ?? def.channels);
+        if (numClasses !== def.channels) {
+          patchedDef = { ...def, channels: numClasses };
+        }
+      }
+      return { def: patchedDef, data: data ?? new Float32Array(patchedDef.channels * patchedDef.h * patchedDef.w), dims };
     });
   }
 
@@ -1210,13 +1227,33 @@ export class LayerRenderer {
   }
 
   _buildLayer(payload, li) {
-    const { def, data } = payload;
-    const C = def.channels;
-    const H = def.h;
-    const W = def.w;
+    const { def, data, dims } = payload;
+    // For li===0 (raw input image), use actual dataset dims (model configs hardcode 1×28×28).
+    // For intermediate layers, use actual ONNX tensor dims to handle datasets with different
+    // spatial sizes (e.g. CIFAR 32×32 gives 16×16 after MaxPool, not 14×14 as in MNIST configs).
+    let C, H, W;
+    if (li === 0) {
+      C = this._inChannels   ?? def.channels;
+      H = this._inputImgSize ?? def.h;
+      W = this._inputImgSize ?? def.w;
+    } else if (dims && dims.length >= 4) {
+      C = Number(dims[1]); H = Number(dims[2]); W = Number(dims[3]);
+    } else if (dims && dims.length === 3) {
+      C = Number(dims[0]); H = Number(dims[1]); W = Number(dims[2]);
+    } else if (dims && dims.length === 2) {
+      // Output layer: [batch, numClasses] — use actual class count from ONNX
+      C = Number(dims[1]); H = 1; W = 1;
+    } else if (def.channelLabels === '__classes__') {
+      // Fallback: use dataset class count (e.g. 100 for CIFAR-100)
+      C = this._classLabels?.length ?? def.channels; H = def.h; W = def.w;
+    } else {
+      C = def.channels; H = def.h; W = def.w;
+    }
 
     const isOutput = li === this._layerDefs.length - 1;
-    const { cols, rows } = isOutput ? { cols: C, rows: 1 } : gridLayout(C);
+    const { cols, rows } = isOutput
+      ? (C <= 20 ? { cols: C, rows: 1 } : gridLayout(C))
+      : gridLayout(C);
 
     const pxSz  = isOutput ? OUTPUT_PIXEL_SIZE : PIXEL_SIZE;
     const planeW = pxSz * W;
@@ -1231,7 +1268,21 @@ export class LayerRenderer {
     group.userData.totalD    = totalD;
     group.position.set(-totalW / 2, layerY, -totalD / 2);
 
-    const { normalized } = normalizeActivations(Array.from(data));
+    // Input layer: convert HWC → CHW and use raw [0,1] values (no contrast stretch)
+    let chw = data;
+    if (li === 0 && C > 1) {
+      const inC = this._inChannels ?? C;
+      const hw  = H * W;
+      chw = new Float32Array(inC * hw);
+      for (let p = 0; p < hw; p++) {
+        for (let c2 = 0; c2 < inC; c2++) {
+          chw[c2 * hw + p] = data[p * inC + c2];
+        }
+      }
+    }
+
+    // Skip normalization for the input layer — pixels are already [0,1]
+    const normalized = li === 0 ? chw : normalizeActivations(Array.from(chw)).normalized;
     if (!this.meshByLayer[li]) this.meshByLayer[li] = {};
 
     for (let c = 0; c < C; c++) {
@@ -1241,6 +1292,9 @@ export class LayerRenderer {
       const cz     = row * (planeH + GAP) + planeH / 2;
       const offset = c * H * W;
 
+      // For RGB input channels: tint channel 0 red, 1 green, 2 blue
+      const isRGBInput = li === 0 && C === 3;
+
       const texData = new Uint8Array(W * H * 4);
       for (let py2 = 0; py2 < H; py2++) {
         for (let px2 = 0; px2 < W; px2++) {
@@ -1248,9 +1302,15 @@ export class LayerRenderer {
           // Flip Y so row py2=0 appears at visual top (DataTexture V=0 is bottom)
           const dstI = (H - 1 - py2) * W + px2;
           const bv = Math.round(normalized[srcI] * 255);
-          texData[dstI * 4]     = bv;
-          texData[dstI * 4 + 1] = bv;
-          texData[dstI * 4 + 2] = bv;
+          if (isRGBInput) {
+            texData[dstI * 4]     = c === 0 ? bv : 0;
+            texData[dstI * 4 + 1] = c === 1 ? bv : 0;
+            texData[dstI * 4 + 2] = c === 2 ? bv : 0;
+          } else {
+            texData[dstI * 4]     = bv;
+            texData[dstI * 4 + 1] = bv;
+            texData[dstI * 4 + 2] = bv;
+          }
           texData[dstI * 4 + 3] = 255;
         }
       }
