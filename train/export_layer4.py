@@ -7,10 +7,15 @@ Requires: pip install onnx onnxruntime
 """
 
 import os
+import sys
 import onnx
 import onnxruntime as ort
 import numpy as np
 from onnx import helper
+
+# Add train directory to path for imports
+sys.path.insert(0, os.path.dirname(__file__))
+from device_utils import get_onnx_providers_with_info
 
 MODELS_DIR = os.path.join(os.path.dirname(__file__), '..', 'public', 'models')
 FULL_PATH   = os.path.join(MODELS_DIR, 'mnist-cnn.onnx')
@@ -58,7 +63,9 @@ sub = onnx.utils.extract_model(FULL_PATH, LAYER4_PATH,
 print(f"Saved: {LAYER4_PATH}")
 
 # Validate
-sess = ort.InferenceSession(LAYER4_PATH)
+providers, provider_str = get_onnx_providers_with_info()
+print(f"Using ONNX Runtime: {provider_str}")
+sess = ort.InferenceSession(LAYER4_PATH, providers=providers)
 dummy = np.zeros((1, 1, 28, 28), dtype=np.float32)
 out = sess.run(None, {'input': dummy})
 print(f"Validation output shape: {out[0].shape}  (expected (1, 128))")

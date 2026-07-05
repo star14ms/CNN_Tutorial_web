@@ -11,9 +11,14 @@ Usage:
 import argparse
 import json
 import os
+import sys
 import numpy as np
 import onnxruntime as ort
 from torchvision import datasets, transforms
+
+# Add train directory to path for imports
+sys.path.insert(0, os.path.dirname(__file__))
+from device_utils import get_onnx_providers_with_info
 
 DATASET_CONFIGS = {
     'mnist': {
@@ -36,8 +41,8 @@ DATASET_CONFIGS = {
 MODEL_IDS = ['linear', 'v1', 'v1bn', 'v2small', 'v2', 'vit']
 
 
-def evaluate(onnx_path, images, labels):
-    sess = ort.InferenceSession(onnx_path, providers=['CPUExecutionProvider'])
+def evaluate(onnx_path, images, labels, providers):
+    sess = ort.InferenceSession(onnx_path, providers=providers)
     input_name = sess.get_inputs()[0].name
 
     # Probe with batch=1 to detect fixed-batch-size exports before running all data
@@ -69,6 +74,10 @@ def main():
     parser.add_argument('--data-root', default='train/data')
     args = parser.parse_args()
 
+    # Get optimal ONNX providers
+    providers, provider_str = get_onnx_providers_with_info()
+    print(f'Using ONNX Runtime: {provider_str}')
+
     cfg = DATASET_CONFIGS[args.dataset]
     transform = transforms.Compose([
         transforms.ToTensor(),
@@ -87,7 +96,7 @@ def main():
         if not os.path.exists(onnx_path):
             print(f'  [skip] {model_id}: {onnx_path} not found')
             continue
-        acc = evaluate(onnx_path, images, labels)
+        acc = evaluate(onnx_path, images, labels, providers)
         if acc is None:
             print(f'  [skip] {model_id}: ONNX model incompatible with onnxruntime (try re-exporting)')
             continue

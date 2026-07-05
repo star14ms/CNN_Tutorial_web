@@ -13,9 +13,14 @@ Output per model:
 
 import argparse
 import os
+import sys
 import struct
 import numpy as np
 import onnxruntime as ort
+
+# Add train directory to path for imports
+sys.path.insert(0, os.path.dirname(__file__))
+from device_utils import get_onnx_providers
 
 DATASETS  = ['mnist', 'fashion_mnist', 'kuzushiji_mnist']
 MODEL_IDS = ['linear', 'v1', 'v1bn', 'v2small', 'v2', 'vit']
@@ -41,7 +46,8 @@ def load_test_set(dataset: str):
 def predict_all(onnx_path: str, images: np.ndarray, batch: int = 256):
     opts = ort.SessionOptions()
     opts.log_severity_level = 4  # suppress ORT stderr (only FATAL)
-    sess = ort.InferenceSession(onnx_path, providers=['CPUExecutionProvider'], sess_options=opts)
+    providers = get_onnx_providers()
+    sess = ort.InferenceSession(onnx_path, providers=providers, sess_options=opts)
     name = sess.get_inputs()[0].name
     # Check if model supports the batch size
     try:
