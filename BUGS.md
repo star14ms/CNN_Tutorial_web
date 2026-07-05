@@ -165,3 +165,21 @@ Claude should **append new entries** whenever the user reports a bug or misimple
 **Root cause:** `initConvWidget`'s `onLanguageChange` callback and the initial status line were hardcoded to `tf('conv.statusPattern', { name: t('sec3.patternCheckerboard') })` regardless of what was actually loaded. After loading a random dataset image, the status text was correct until the user switched languages (or the callback ran for any reason) — at which point it snapped back to "Pattern: Checkerboard" even though the input canvas still showed the real dataset image, making it look like the dataset image "wasn't applied."
 **Fix:** Added a `currentSource` state object (`{type: 'pattern'|'dataset', ...}`) updated by every input-changing action (pixel edit, pattern dropdown, dataset load), and a single `updateStatusText()` that renders the correct status from `currentSource`. `onLanguageChange` now calls `updateStatusText()` instead of a hardcoded string. Also added a missing `sec3.patternCustom` i18n key for the hand-edited-pixel case.
 **Prevention:** Never hardcode a UI-refresh callback (like a language-change listener) to a fixed default string — derive it from actual current state, or any refresh triggered by an unrelated event will silently overwrite genuine state with a stale default.
+
+---
+
+### B-21: Idea-card body text clipped when reopened after collapse
+**Reported:** Session 5 (Learn Center update)
+**Root cause:** `.idea-card.open .idea-card-body { max-height: 200px; ... }` was a hardcoded CSS cap. `initIdeaCards` correctly measured actual content height with `scrollHeight` and set `style.maxHeight = \`${h}px\`` for each open card. However, CSS specificity rules applied both the inline style and the CSS rule: on re-open, if actual content exceeded 200px (e.g., a card with 2–3 paragraphs and an SVG), the CSS rule would clip it. The inline style later corrected this, but during the initial animation frame, visual clipping occurred.
+**Fix:** Removed `max-height: 200px` from `.idea-card.open .idea-card-body { ... }` in `style.css`, leaving only the padding animation. JavaScript now has full control of max-height throughout the card's lifetime: `0` when closed, `${scrollHeight}px` when open.
+**Prevention:** When an element's height is driven by JavaScript (measured at runtime), CSS should never declare a conflicting `max-height` rule for that state — it will clip content during transitions even if the inline style eventually wins. Let JavaScript own the dimension completely.
+
+---
+
+### B-22: Conv input widget — no drawing capability, click-to-cycle only
+**Reported:** Session 5 (Learn Center update)
+**Root cause:** `initConvWidget` bound only a `click` event to the input canvas (`inputGrid[r][c] = ((Math.round(...) + 1) % 6) / 5`). Users could cycle brightness one value at a time per click, but could not draw continuous strokes by dragging the mouse.
+**Fix:** Added `isDrawing` state and `mousedown`/`mousemove`/`mouseup`/`mouseleave` handlers. A `paintCell(e)` function increments brightness by 0.2 per cell (capped at 1.0) on each mousemove while `isDrawing === true`. The original click handler remains for cycle-through-all-values behavior. Also added `#conv-clear` button (visible in the UI) wired to reset the entire grid to zeros and mark source as `{type: 'pattern', name: 'custom'}`.
+**Prevention:** Interactive canvases need both coarse (click) and fine (drag) input modes. Always bind `mousedown/mousemove/mouseup` for drag, and preserve separate fast-cycle semantics for `click`. Use a state flag to avoid re-painting on every mousemove outside the canvas.
+
+---

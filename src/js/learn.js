@@ -333,18 +333,22 @@ function initIdeaCards() {
     head.addEventListener('click', () => {
       const card = head.parentElement;
       const body = card.querySelector('.idea-card-body');
-      card.classList.toggle('open');
-      if (card.classList.contains('open')) {
-        // Set an explicit height matching real content instead of relying on the
-        // generic CSS cap — otherwise the collapse transition spends most of its
-        // duration on an invisible change before any visible closing happens.
-        const prevInline = body.style.maxHeight;
+      const isOpening = !card.classList.contains('open');
+
+      if (isOpening) {
+        // Measure height before applying open class (no transition yet)
         body.style.maxHeight = 'none';
         const h = body.scrollHeight;
-        body.style.maxHeight = prevInline;
+        body.style.maxHeight = '0px';
+        // Force layout to ensure transition will work from 0 to h
+        void body.offsetHeight;
+        // Now apply the open class and animate to final height
+        card.classList.add('open');
         body.style.maxHeight = `${h}px`;
       } else {
-        body.style.maxHeight = '';
+        // Closing: collapse back to 0
+        body.style.maxHeight = '0px';
+        card.classList.remove('open');
       }
     });
   });
@@ -492,9 +496,7 @@ function initConvWidget() {
   let animTimer = null;
   let playing = false;
   let currentKernelName = 'edgeTop';
-  // Tracks which input source is currently active, so the status text (and any
-  // re-render triggered by a language switch) always reflects reality instead of
-  // being hardcoded back to the initial pattern.
+  let isDrawing = false;
   let currentSource = { type: 'pattern', name: 'checkerboard' };
 
   function updateStatusText() {
@@ -629,7 +631,14 @@ function initConvWidget() {
     let minV = Infinity, maxV = -Infinity;
     out.forEach(row => row.forEach(v => { minV = Math.min(minV, v); maxV = Math.max(maxV, v); }));
     const range = maxV - minV || 1;
-    oCtx.clearRect(0, 0, outputCanvas.width, outputCanvas.height);
+
+    // DEBUG: Log output info
+    if (currentSource.type === 'dataset' && console) {
+      console.log(`[Conv] Dataset output: size=${outSize}, min=${minV.toFixed(2)}, max=${maxV.toFixed(2)}, range=${range.toFixed(2)}`);
+    }
+
+    oCtx.fillStyle = '#0a0a14';
+    oCtx.fillRect(0, 0, outputCanvas.width, outputCanvas.height);
     for (let r = 0; r < outSize; r++) {
       for (let c = 0; c < outSize; c++) {
         const norm = (out[r][c] - minV) / range;
@@ -660,12 +669,27 @@ function initConvWidget() {
 
   function redraw() { drawInput(); drawKernel(); drawOutput(); updateFormula(); }
 
-  // input click — cycle brightness in steps of 0.2
+  function paintCell(e) {
+    const rect = inputCanvas.getBoundingClientRect();
+    const p = getPad(), total = getTotalCells();
+    const c = Math.floor((e.clientX - rect.left) / rect.width * total) - p;
+    const r = Math.floor((e.clientY - rect.top) / rect.height * total) - p;
+    if (r >= 0 && r < GRID && c >= 0 && c < GRID) {
+      inputGrid[r][c] = Math.min(1, inputGrid[r][c] + 0.2);
+      presetEl.value = '';
+      currentSource = { type: 'pattern', name: 'custom' };
+      updateStatusText();
+      redraw();
+    }
+  }
+
+  inputCanvas.addEventListener('mousedown', e => { isDrawing = true; paintCell(e); });
+  inputCanvas.addEventListener('mousemove', e => { if (isDrawing) paintCell(e); });
+  inputCanvas.addEventListener('mouseup', () => { isDrawing = false; });
+  inputCanvas.addEventListener('mouseleave', () => { isDrawing = false; });
   inputCanvas.addEventListener('click', e => {
     const rect = inputCanvas.getBoundingClientRect();
     const p = getPad(), total = getTotalCells();
-    // Coordinates are in the padded visual grid — subtract p to land on the real
-    // (editable) cells; clicks that land on the zero-padding border are ignored.
     const c = Math.floor((e.clientX - rect.left) / rect.width * total) - p;
     const r = Math.floor((e.clientY - rect.top) / rect.height * total) - p;
     if (r >= 0 && r < GRID && c >= 0 && c < GRID) {
@@ -745,6 +769,14 @@ function initConvWidget() {
 
   strideEl.addEventListener('change', redraw);
   padEl.addEventListener('change', redraw);
+
+  document.getElementById('conv-clear').addEventListener('click', () => {
+    inputGrid = Array.from({ length: GRID }, () => new Array(GRID).fill(0));
+    presetEl.value = '';
+    currentSource = { type: 'pattern', name: 'custom' };
+    updateStatusText();
+    redraw();
+  });
 
   // animation
   function getPositions() {
