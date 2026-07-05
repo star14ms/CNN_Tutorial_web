@@ -30,12 +30,17 @@ Usage:
 
 import argparse
 import os
+import sys
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 import numpy as np
+
+# Add train directory to path for imports
+sys.path.insert(0, os.path.dirname(__file__))
+from device_utils import get_device_with_info
 
 DATASET_MAP = {
     'mnist':           {'class': datasets.MNIST,        'mean': (0.1307,),                'std': (0.3081,),                'in_channels': 1, 'img_size': 28, 'num_classes': 10},
@@ -210,7 +215,7 @@ def train(dataset_id='mnist'):
         device = torch.device('mps')
     else:
         device = torch.device('cpu')
-    print(f'Using device: {device}  dataset: {dataset_id}')
+    print(f'Using device: {device_str}  dataset: {dataset_id}')
 
     if device.type == 'cuda':
         torch.backends.cudnn.benchmark = False

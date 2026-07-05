@@ -16,6 +16,14 @@
 #   - conda with deep-learning environment: conda activate deep-learning
 #   - All packages from requirements.txt installed
 #
+# Device Support:
+#   - NVIDIA CUDA (GPU) — automatically detected
+#   - Apple Metal Performance Shaders (MPS) — for Apple Silicon Macs
+#   - CPU fallback — if no GPU available
+#
+# Note: For Apple Silicon, ensure PyTorch is installed with MPS support:
+#   pip install torch torchvision torchaudio
+#
 # Output:
 #   - public/data/{dataset}/*.bin                 (dataset binaries)
 #   - public/models/{dataset}/{arch}/*.onnx       (ONNX layer checkpoints)
