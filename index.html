@@ -19,9 +19,10 @@
 <body>
 
 <header>
-  <h1>CNN Visualization</h1>
-  <span class="subtitle">Client-side inference &amp; 3D layer visualization</span>
+  <h1 data-i18n="header.title">CNN Visualization</h1>
+  <span class="subtitle" data-i18n="header.subtitle">Client-side inference &amp; 3D layer visualization</span>
   <nav class="dataset-nav">
+    <span class="dataset-nav-label" data-i18n="header.datasetLabel">Choose Dataset</span>
     <button class="btn dataset-btn active" data-dataset="mnist">MNIST</button>
     <button class="btn dataset-btn" data-dataset="fashion_mnist">Fashion-MNIST</button>
     <button class="btn dataset-btn" data-dataset="kuzushiji_mnist">Kuzushiji-MNIST</button>
@@ -29,7 +30,423 @@
     <button class="btn dataset-btn" data-dataset="cifar100">CIFAR-100</button>
     <button class="btn dataset-btn" data-dataset="svhn">SVHN</button>
   </nav>
+  <select id="lang-select" class="wselect" style="margin-left:8px">
+    <option value="en">🇬🇧 English</option>
+    <option value="ko">🇰🇷 한국어</option>
+  </select>
+  <button class="learn-open-btn" id="learn-open-btn" data-i18n="header.learnBtn">📖 Learn</button>
 </header>
+
+<!-- CNN Learning Center overlay -->
+<div id="learn-overlay">
+  <div class="learn-header">
+    <h2 data-i18n="learn.title">CNN Learning Center</h2>
+    <span class="learn-header-sub" data-i18n="learn.subtitle">Interactive guide to Convolutional Neural Networks</span>
+    <button class="learn-close" id="learn-close" data-i18n="learn.close">✕ Close</button>
+  </div>
+  <div class="learn-body">
+    <nav class="learn-sidebar">
+      <div class="learn-sidebar-label" data-i18n="sidebar.contents">Contents</div>
+      <div class="learn-nav-item active" data-section="sec-vision"><span class="nav-num">①</span> <span data-i18n="nav.vision">Computer Vision</span></div>
+      <div class="learn-nav-item" data-section="sec-mlp"><span class="nav-num">②</span> <span data-i18n="nav.mlp">MLP → CNN</span></div>
+      <div class="learn-nav-item" data-section="sec-conv"><span class="nav-num">③</span> <span data-i18n="nav.conv">Conv Layer</span></div>
+      <div class="learn-nav-item" data-section="sec-activation"><span class="nav-num">④</span> <span data-i18n="nav.activation">Activation &amp; Pooling</span></div>
+      <div class="learn-nav-item" data-section="sec-fc"><span class="nav-num">⑤</span> <span data-i18n="nav.fc">FC &amp; Softmax</span></div>
+      <div class="learn-nav-item" data-section="sec-beyond"><span class="nav-num">⑥</span> <span data-i18n="nav.beyond">Beyond CNNs</span></div>
+    </nav>
+    <div class="learn-content" id="learn-content">
+
+      <!-- ① Computer Vision -->
+      <section class="learn-section" id="sec-vision">
+        <h2 data-i18n="sec1.title">Computer Vision Tasks</h2>
+        <p class="section-intro" data-i18n="sec1.intro">Computer vision teaches machines to understand images. There are several categories of vision tasks, each with a different output format and a different architecture family suited to solving it. Click a card to learn more.</p>
+        <div class="task-card-grid" id="task-cards"></div>
+      </section>
+
+      <!-- ② MLP → CNN -->
+      <section class="learn-section" id="sec-mlp">
+        <h2 data-i18n="sec2.title">From MLP to CNN</h2>
+
+        <div class="learn-subsection">
+          <h3 data-i18n="sec2.mlp.h3">Multi-Layer Perceptron</h3>
+          <p class="learn-p" data-i18n="sec2.mlp.p">A Multi-Layer Perceptron (MLP) is the simplest deep network: every neuron in one layer connects to every neuron in the next. Hover over a neuron to see its connections.</p>
+          <div class="widget-box">
+            <div class="widget-title" data-i18n="sec2.mlp.widgetTitle">MLP Diagram (4 → 4 → 3)</div>
+            <canvas id="mlp-canvas" class="widget-canvas" width="380" height="200"></canvas>
+            <p class="mlp-note" data-i18n="sec2.mlp.note">Each connection has an independent learned weight.</p>
+          </div>
+        </div>
+
+        <div class="learn-subsection">
+          <h3 data-i18n="sec2.hard.h3">Why Images Are Hard for MLPs</h3>
+          <p class="learn-p" data-i18n="sec2.hard.p">A fully connected layer treats each pixel as independent. For a 28×28 image (784 inputs) and 128 hidden neurons, that's already 100,352 weights — just for one layer. Scale to 256×256 color images and the first layer alone needs over 25 million weights.</p>
+          <div class="widget-box">
+            <div class="widget-title" data-i18n="sec2.hard.widgetTitle">Parameter Explosion</div>
+            <div class="widget-row">
+              <div class="widget-col">
+                <label class="widget-label"><span data-i18n="sec2.hard.imgSizeLabel">Image size:</span> <span id="img-size-label">28 × 28</span></label>
+                <input type="range" class="wrange" id="img-size-slider" min="0" max="5" step="1" value="0" />
+                <label class="widget-label"><span data-i18n="sec2.hard.hiddenLabel">Hidden neurons:</span> <span id="hidden-label">128</span></label>
+                <input type="range" class="wrange" id="hidden-slider" min="0" max="4" step="1" value="1" />
+              </div>
+              <div class="widget-col" style="flex:1">
+                <div class="param-counter-display" id="param-counter">100,352</div>
+                <div class="param-counter-label" data-i18n="sec2.hard.counterLabel">weights in layer 1 alone</div>
+              </div>
+            </div>
+          </div>
+          <div class="learn-highlight" data-i18n="sec2.hard.highlight" data-i18n-html><strong>Key problems:</strong> too many parameters → slow training, overfitting. No spatial awareness — the network has no concept that pixel (3,4) is next to pixel (3,5). Not translation invariant — the same feature at a different position looks completely different to the network.</div>
+        </div>
+
+        <div class="learn-subsection">
+          <h3 data-i18n="sec2.cnn.h3">How CNNs Solve This</h3>
+          <p class="learn-p" data-i18n="sec2.cnn.p">Convolutional Neural Networks introduce three structural ideas that make image learning tractable:</p>
+          <div class="idea-cards" id="idea-cards">
+            <div class="idea-card">
+              <div class="idea-card-head"><span class="idea-badge">1</span><span class="idea-card-title" data-i18n="idea.local.title">Local Connectivity</span></div>
+              <div class="idea-card-body">
+                <svg class="idea-illustration" viewBox="0 0 280 100" xmlns="http://www.w3.org/2000/svg">
+                  <g stroke="var(--border)" stroke-width="1">
+                    <rect x="0" y="0" width="12" height="12" fill="#1c2743" transform="translate(10,14)"/>
+                    <rect x="12" y="0" width="12" height="12" fill="#1c2743" transform="translate(10,14)"/>
+                    <rect x="24" y="0" width="12" height="12" fill="#1c2743" transform="translate(10,14)"/>
+                    <rect x="36" y="0" width="12" height="12" fill="#1c2743" transform="translate(10,14)"/>
+                    <rect x="48" y="0" width="12" height="12" fill="#1c2743" transform="translate(10,14)"/>
+                    <rect x="0" y="12" width="12" height="12" fill="#1c2743" transform="translate(10,14)"/>
+                    <rect x="12" y="12" width="12" height="12" fill="#3a3160" transform="translate(10,14)"/>
+                    <rect x="24" y="12" width="12" height="12" fill="#3a3160" transform="translate(10,14)"/>
+                    <rect x="36" y="12" width="12" height="12" fill="#3a3160" transform="translate(10,14)"/>
+                    <rect x="48" y="12" width="12" height="12" fill="#1c2743" transform="translate(10,14)"/>
+                    <rect x="0" y="24" width="12" height="12" fill="#1c2743" transform="translate(10,14)"/>
+                    <rect x="12" y="24" width="12" height="12" fill="#3a3160" transform="translate(10,14)"/>
+                    <rect x="24" y="24" width="12" height="12" fill="#3a3160" transform="translate(10,14)"/>
+                    <rect x="36" y="24" width="12" height="12" fill="#3a3160" transform="translate(10,14)"/>
+                    <rect x="48" y="24" width="12" height="12" fill="#1c2743" transform="translate(10,14)"/>
+                    <rect x="0" y="36" width="12" height="12" fill="#1c2743" transform="translate(10,14)"/>
+                    <rect x="12" y="36" width="12" height="12" fill="#3a3160" transform="translate(10,14)"/>
+                    <rect x="24" y="36" width="12" height="12" fill="#3a3160" transform="translate(10,14)"/>
+                    <rect x="36" y="36" width="12" height="12" fill="#3a3160" transform="translate(10,14)"/>
+                    <rect x="48" y="36" width="12" height="12" fill="#1c2743" transform="translate(10,14)"/>
+                    <rect x="0" y="48" width="12" height="12" fill="#1c2743" transform="translate(10,14)"/>
+                    <rect x="12" y="48" width="12" height="12" fill="#1c2743" transform="translate(10,14)"/>
+                    <rect x="24" y="48" width="12" height="12" fill="#1c2743" transform="translate(10,14)"/>
+                    <rect x="36" y="48" width="12" height="12" fill="#1c2743" transform="translate(10,14)"/>
+                    <rect x="48" y="48" width="12" height="12" fill="#1c2743" transform="translate(10,14)"/>
+                  </g>
+                  <rect x="22" y="26" width="36" height="36" fill="none" stroke="var(--yellow)" stroke-width="2"/>
+                  <line x1="58" y1="44" x2="180" y2="44" stroke="var(--yellow)" stroke-width="1.5" stroke-dasharray="3 3"/>
+                  <circle cx="200" cy="44" r="16" fill="#16213e" stroke="var(--yellow)" stroke-width="2"/>
+                  <text x="40" y="86" fill="var(--muted)" font-size="9" text-anchor="middle">input image</text>
+                  <text x="40" y="12" fill="var(--yellow)" font-size="9" text-anchor="middle">receptive field (3×3)</text>
+                  <text x="200" y="80" fill="var(--muted)" font-size="9" text-anchor="middle">1 output neuron</text>
+                </svg>
+                <p data-i18n="idea.local.body" data-i18n-html>Each neuron in a conv layer only looks at a small local region of the input (the <em>receptive field</em>), typically 3×3 or 5×5. This dramatically reduces the number of connections and biases the network toward detecting local patterns like edges and corners.</p>
+              </div>
+            </div>
+            <div class="idea-card">
+              <div class="idea-card-head"><span class="idea-badge">2</span><span class="idea-card-title" data-i18n="idea.weight.title">Weight Sharing</span></div>
+              <div class="idea-card-body">
+                <svg class="idea-illustration" viewBox="0 0 280 100" xmlns="http://www.w3.org/2000/svg">
+                  <g stroke="var(--border)" stroke-width="1" fill="#1c2743">
+                    <rect x="10" y="14" width="14" height="14"/>
+                    <rect x="24" y="14" width="14" height="14"/>
+                    <rect x="38" y="14" width="14" height="14"/>
+                    <rect x="52" y="14" width="14" height="14"/>
+                    <rect x="66" y="14" width="14" height="14"/>
+                    <rect x="80" y="14" width="14" height="14"/>
+                    <rect x="94" y="14" width="14" height="14"/>
+                    <rect x="108" y="14" width="14" height="14"/>
+                  </g>
+                  <rect x="10" y="14" width="42" height="14" fill="none" stroke="var(--yellow)" stroke-width="2"/>
+                  <rect x="66" y="14" width="42" height="14" fill="none" stroke="var(--yellow)" stroke-width="2" stroke-dasharray="3 2"/>
+                  <text x="31" y="10" fill="var(--yellow)" font-size="9" text-anchor="middle">kernel A</text>
+                  <text x="87" y="10" fill="var(--yellow)" font-size="9" text-anchor="middle">kernel B</text>
+                  <text x="59" y="42" fill="var(--muted)" font-size="9" text-anchor="middle">same 9 weights, different position</text>
+                  <g stroke="var(--border)" stroke-width="1" fill="#3a3160">
+                    <rect x="10" y="62" width="14" height="14"/>
+                    <rect x="24" y="62" width="14" height="14"/>
+                    <rect x="38" y="62" width="14" height="14"/>
+                    <rect x="66" y="62" width="14" height="14"/>
+                    <rect x="80" y="62" width="14" height="14"/>
+                    <rect x="94" y="62" width="14" height="14"/>
+                  </g>
+                  <line x1="31" y1="28" x2="24" y2="62" stroke="var(--yellow)" stroke-width="1.5"/>
+                  <line x1="87" y1="28" x2="80" y2="62" stroke="var(--yellow)" stroke-width="1.5" stroke-dasharray="3 2"/>
+                  <text x="59" y="90" fill="var(--muted)" font-size="9" text-anchor="middle">output feature map</text>
+                </svg>
+                <p data-i18n="idea.weight.body" data-i18n-html>The same kernel (filter) is slid across the entire image. Every position shares the same learned weights. A 3×3 kernel has only 9 weights regardless of image size — compared to millions in a fully connected layer. This also makes the network <em>translation equivariant</em>: the same feature at a different position produces the same response, just shifted.</p>
+              </div>
+            </div>
+            <div class="idea-card">
+              <div class="idea-card-head"><span class="idea-badge">3</span><span class="idea-card-title" data-i18n="idea.hier.title">Hierarchical Features</span></div>
+              <div class="idea-card-body">
+                <svg class="idea-illustration" viewBox="0 0 280 110" xmlns="http://www.w3.org/2000/svg">
+                  <g font-size="9" fill="var(--muted)">
+                    <rect x="10" y="82" width="18" height="18" fill="#1c2743" stroke="var(--border)"/>
+                    <circle cx="15" cy="87" r="1.4" fill="#8899cc"/><circle cx="20" cy="87" r="1.4" fill="#8899cc"/><circle cx="25" cy="87" r="1.4" fill="#8899cc"/>
+                    <circle cx="15" cy="92" r="1.4" fill="#8899cc"/><circle cx="20" cy="92" r="1.4" fill="#8899cc"/><circle cx="25" cy="92" r="1.4" fill="#8899cc"/>
+                    <circle cx="15" cy="97" r="1.4" fill="#8899cc"/><circle cx="20" cy="97" r="1.4" fill="#8899cc"/><circle cx="25" cy="97" r="1.4" fill="#8899cc"/>
+                    <text x="36" y="94">Pixels — raw brightness values</text>
+
+                    <rect x="10" y="58" width="18" height="18" fill="#232f52" stroke="var(--border)"/>
+                    <line x1="13" y1="76" x2="25" y2="61" stroke="#f0c040" stroke-width="1.5"/>
+                    <line x1="13" y1="68" x2="20" y2="61" stroke="#f0c040" stroke-width="1.5"/>
+                    <text x="36" y="70">Edges — simple oriented lines</text>
+
+                    <rect x="10" y="34" width="18" height="18" fill="#2a3a5a" stroke="var(--border)"/>
+                    <polygon points="19,37 26,49 12,49" fill="none" stroke="#5ec8f0" stroke-width="1.5"/>
+                    <text x="36" y="46">Shapes / textures — combined edges</text>
+
+                    <rect x="10" y="10" width="18" height="18" fill="#39415f" stroke="var(--border)"/>
+                    <circle cx="19" cy="19" r="7" fill="none" stroke="#39d353" stroke-width="1.5"/>
+                    <circle cx="16.5" cy="17" r="1" fill="#39d353"/><circle cx="21.5" cy="17" r="1" fill="#39d353"/>
+                    <path d="M15 22 Q19 25 23 22" fill="none" stroke="#39d353" stroke-width="1.2"/>
+                    <text x="36" y="22">Objects — high-level concepts</text>
+                  </g>
+                  <g stroke="var(--yellow)" stroke-width="1.5" fill="none">
+                    <path d="M19 82 L19 76" marker-end="url(#arrow)"/>
+                    <path d="M19 58 L19 52" marker-end="url(#arrow)"/>
+                    <path d="M19 34 L19 28" marker-end="url(#arrow)"/>
+                  </g>
+                  <defs>
+                    <marker id="arrow" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
+                      <path d="M0,0 L6,3 L0,6 Z" fill="var(--yellow)"/>
+                    </marker>
+                  </defs>
+                </svg>
+                <p data-i18n="idea.hier.body" data-i18n-html>Early layers detect simple patterns (edges, colors). Middle layers combine those into textures and shapes. Deep layers represent high-level concepts (eyes, wheels, faces). This hierarchy of features mirrors how the biological visual cortex processes images.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ③ Conv Layer -->
+      <section class="learn-section" id="sec-conv">
+        <h2 data-i18n="sec3.title">Convolutional Layer</h2>
+        <p class="section-intro" data-i18n="sec3.intro">A convolution slides a small kernel over the input image. At each position it computes a dot product between the kernel weights and the local input patch, writing the result to the output feature map.</p>
+        <div class="widget-box">
+          <div class="widget-title" data-i18n="sec3.widgetTitle">Interactive Kernel Demo</div>
+          <div class="widget-row">
+            <div class="widget-col">
+              <div class="widget-label" data-i18n="sec3.inputLabel">Input (click cell to cycle brightness)</div>
+              <canvas id="conv-input" class="widget-canvas" width="192" height="192"></canvas>
+              <div class="widget-label" style="margin-top:8px" data-i18n="sec3.randomFrom">🎲 Random sample from:</div>
+              <div class="widget-row-btns" id="conv-dataset-btns">
+                <button class="wbtn" data-dataset="mnist">MNIST</button>
+                <button class="wbtn" data-dataset="fashion_mnist">Fashion</button>
+                <button class="wbtn" data-dataset="kuzushiji_mnist">Kuzushiji</button>
+                <button class="wbtn" data-dataset="cifar10">CIFAR-10</button>
+                <button class="wbtn" data-dataset="cifar100">CIFAR-100</button>
+                <button class="wbtn" data-dataset="svhn">SVHN</button>
+              </div>
+              <select class="wselect" id="conv-input-preset" style="margin-top:8px; width:100%">
+                <option value="" selected disabled data-i18n="sec3.presetPlaceholder">Or choose a synthetic pattern…</option>
+                <option value="checkerboard" data-i18n="sec3.patternCheckerboard">Checkerboard</option>
+                <option value="gradient" data-i18n="sec3.patternGradient">Gradient</option>
+                <option value="cross" data-i18n="sec3.patternCross">Cross</option>
+                <option value="noise" data-i18n="sec3.patternNoise">Random Noise</option>
+              </select>
+              <div class="mlp-note" id="conv-input-status">Pattern: Checkerboard</div>
+            </div>
+            <div class="widget-col">
+              <div class="widget-label" data-i18n="sec3.kernelLabel">Kernel (click cell to edit)</div>
+              <canvas id="conv-kernel" class="widget-canvas" width="108" height="108"></canvas>
+              <div class="widget-row-btns">
+                <button class="wbtn wactive" data-kernel="edgeTop" data-i18n="sec3.kernelEdgeTop">Edge ↑</button>
+                <button class="wbtn" data-kernel="edgeBottom" data-i18n="sec3.kernelEdgeBottom">Edge ↓</button>
+                <button class="wbtn" data-kernel="edgeLeft" data-i18n="sec3.kernelEdgeLeft">Edge ←</button>
+                <button class="wbtn" data-kernel="edgeRight" data-i18n="sec3.kernelEdgeRight">Edge →</button>
+                <button class="wbtn" data-kernel="edgeTL" data-i18n="sec3.kernelEdgeTL">Corner ↖</button>
+                <button class="wbtn" data-kernel="edgeTR" data-i18n="sec3.kernelEdgeTR">Corner ↗</button>
+                <button class="wbtn" data-kernel="edgeBL" data-i18n="sec3.kernelEdgeBL">Corner ↙</button>
+                <button class="wbtn" data-kernel="edgeBR" data-i18n="sec3.kernelEdgeBR">Corner ↘</button>
+                <button class="wbtn" data-kernel="blur" data-i18n="sec3.kernelBlur">Blur</button>
+                <button class="wbtn" data-kernel="sharpen" data-i18n="sec3.kernelSharpen">Sharpen</button>
+                <button class="wbtn" data-kernel="custom" data-i18n="sec3.kernelCustom">Custom</button>
+              </div>
+            </div>
+            <div class="widget-col">
+              <div class="widget-label" data-i18n="sec3.outputLabel">Output</div>
+              <canvas id="conv-output" class="widget-canvas" width="192" height="192"></canvas>
+            </div>
+          </div>
+          <div class="widget-row" style="margin-top:12px; gap:16px; align-items:center">
+            <label class="widget-label"><span data-i18n="sec3.strideLabel">Stride:</span> <select class="wselect" id="conv-stride"><option value="1">1</option><option value="2">2</option></select></label>
+            <label class="widget-label"><span data-i18n="sec3.paddingLabel">Padding:</span> <select class="wselect" id="conv-pad"><option value="0" data-i18n="sec3.paddingNone">None</option><option value="1" data-i18n="sec3.paddingSame">Same</option></select></label>
+            <button class="wbtn wprimary" id="conv-play" data-i18n="sec3.play">▶ Play</button>
+            <button class="wbtn" id="conv-step" data-i18n="sec3.step">Step</button>
+            <button class="wbtn" id="conv-reset" data-i18n="sec3.reset">Reset</button>
+          </div>
+          <div class="widget-formula" id="conv-formula">output[i,j] = Σ kernel[m,n] · input[i·s+m, j·s+n]</div>
+        </div>
+      </section>
+
+      <!-- ④ Activation & Pooling -->
+      <section class="learn-section" id="sec-activation">
+        <h2 data-i18n="sec4.title">Activation &amp; Pooling</h2>
+
+        <div class="learn-subsection">
+          <h3 data-i18n="sec4.act.h3">Activation Functions</h3>
+          <p class="learn-p" data-i18n="sec4.act.p">After convolution, an element-wise nonlinearity is applied. Without it, stacking layers would still be a linear function and the network couldn't learn complex patterns. Drag the point on the input axis to explore.</p>
+          <div class="widget-box">
+            <div class="widget-title" data-i18n="sec4.act.widgetTitle">Activation Function Demo</div>
+            <div class="widget-row">
+              <canvas id="relu-canvas" class="widget-canvas" width="260" height="180"></canvas>
+              <div class="widget-col">
+                <div class="widget-row-btns">
+                  <button class="wbtn wactive" data-fn="relu">ReLU</button>
+                  <button class="wbtn" data-fn="sigmoid">Sigmoid</button>
+                  <button class="wbtn" data-fn="tanh">Tanh</button>
+                </div>
+                <div class="widget-label" style="margin-top:8px"><span data-i18n="sec4.act.inputX">Input x:</span> <span class="widget-value" id="relu-x-val">0.00</span></div>
+                <div class="widget-label"><span data-i18n="sec4.act.outputFx">Output f(x):</span> <span class="widget-value" id="relu-y-val">0.00</span></div>
+                <div class="widget-formula" id="relu-formula">f(x) = max(0, x)</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="learn-subsection">
+          <h3 data-i18n="sec4.pool.h3">Pooling Layer</h3>
+          <p class="learn-p" data-i18n="sec4.pool.p" data-i18n-html>Pooling reduces spatial dimensions, making the representation smaller and more robust to small translations. A window slides over the feature map and picks either the <em>maximum</em> value or the <em>average</em>.</p>
+          <div class="widget-box">
+            <div class="widget-title" data-i18n="sec4.pool.widgetTitle">Max / Avg Pooling Demo (4×4 → 2×2, stride 2)</div>
+            <div class="widget-row">
+              <div class="widget-col">
+                <div class="widget-label" data-i18n="sec4.pool.inputLabel">Input</div>
+                <canvas id="pool-input" class="widget-canvas" width="192" height="192"></canvas>
+                <div class="widget-row-btns">
+                  <button class="wbtn" id="pool-randomize" data-i18n="sec4.pool.randomize">Randomize</button>
+                </div>
+              </div>
+              <div class="widget-col">
+                <div class="widget-label" data-i18n="sec4.pool.outputLabel">Output</div>
+                <canvas id="pool-output" class="widget-canvas" width="96" height="96"></canvas>
+                <div class="widget-row-btns" style="margin-top:8px">
+                  <button class="wbtn wactive" data-pool="max" data-i18n="sec4.pool.max">Max Pool</button>
+                  <button class="wbtn" data-pool="avg" data-i18n="sec4.pool.avg">Avg Pool</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ⑤ FC & Softmax -->
+      <section class="learn-section" id="sec-fc">
+        <h2 data-i18n="sec5.title">Fully Connected Layer &amp; Softmax</h2>
+
+        <div class="learn-subsection">
+          <h3 data-i18n="sec5.fc.h3">Fully Connected (Linear) Layer</h3>
+          <p class="learn-p" data-i18n="sec5.fc.p">After the convolutional and pooling layers extract spatial features, one or more fully connected layers combine them into class scores. Each output neuron has a weighted connection to every input. Move the sliders to see how input values affect outputs.</p>
+          <div class="widget-box">
+            <div class="widget-title" data-i18n="sec5.fc.widgetTitle">Matrix Multiply: W·x + b (4 inputs → 3 outputs)</div>
+            <div class="widget-row">
+              <div class="widget-col" style="gap:6px; min-width:180px">
+                <div class="widget-label" data-i18n="sec5.fc.inputX">Input x</div>
+                <div id="fc-inputs"></div>
+              </div>
+              <div class="widget-col" style="flex:1">
+                <div class="widget-label" data-i18n="sec5.fc.outputScores">Output scores</div>
+                <div class="fc-bars" id="fc-outputs"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="learn-subsection">
+          <h3 data-i18n="sec5.sm.h3">Softmax Output</h3>
+          <p class="learn-p" data-i18n="sec5.sm.p">Softmax converts raw scores (logits) into probabilities that sum to 1. Large differences in logit values get amplified — the highest logit dominates the output. Adjust the sliders to explore.</p>
+          <div class="widget-box">
+            <div class="widget-title">Softmax: e^z / Σe^z</div>
+            <div class="widget-row">
+              <div class="widget-col" style="gap:6px; min-width:180px">
+                <div class="widget-label" data-i18n="sec5.sm.logitsZ">Logits z</div>
+                <div id="sm-inputs"></div>
+              </div>
+              <div class="widget-col" style="flex:1">
+                <div class="widget-label" data-i18n="sec5.sm.probabilities">Probabilities</div>
+                <div class="fc-bars" id="sm-outputs"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ⑥ Beyond CNNs -->
+      <section class="learn-section" id="sec-beyond">
+        <h2 data-i18n="sec6.title">Beyond CNNs: Diffusion &amp; Generative Models</h2>
+        <p class="section-intro" data-i18n="sec6.intro" data-i18n-html>Everything so far has been a <em>discriminative</em> model — mapping an image to a label, box, or mask. <strong>Generative</strong> models flip the problem: instead of recognizing an image, they create one. Diffusion models are the current state of the art for image, video, and audio generation.</p>
+
+        <div class="learn-subsection">
+          <h3 data-i18n="sec6.how.h3">How Diffusion Models Work</h3>
+          <p class="learn-p" data-i18n="sec6.how.p1">Diffusion models learn to generate data by reversing a gradual noising process. Training happens in two phases:</p>
+          <p class="learn-p" data-i18n="sec6.how.p2" data-i18n-html><strong style="color:var(--yellow)">Forward process:</strong> a training image is progressively corrupted by adding a small amount of Gaussian noise at each of hundreds of steps, until it becomes indistinguishable from pure static.</p>
+          <p class="learn-p" data-i18n="sec6.how.p3" data-i18n-html><strong style="color:var(--yellow)">Reverse process:</strong> a neural network — usually a <strong>U-Net</strong> — is trained to predict and remove the noise added at each step. Once trained, it can start from pure random noise and iteratively "denoise" it into a coherent, realistic image.</p>
+          <div class="widget-box">
+            <div class="widget-title" data-i18n="sec6.how.widgetTitle">Denoising Simulation</div>
+            <div class="widget-row">
+              <canvas id="diffusion-canvas" class="widget-canvas" width="192" height="192"></canvas>
+              <div class="widget-col" style="min-width:180px">
+                <label class="widget-label"><span data-i18n="sec6.how.stepLabel">Denoising step:</span> <span class="widget-value" id="diffusion-step-val">0 / 100</span></label>
+                <input type="range" class="wrange" id="diffusion-slider" min="0" max="100" step="1" value="0" />
+                <div class="widget-row-btns">
+                  <button class="wbtn wprimary" id="diffusion-play" data-i18n="sec3.play">▶ Play</button>
+                  <button class="wbtn" id="diffusion-reset" data-i18n="sec3.reset">Reset</button>
+                </div>
+                <p class="mlp-note" data-i18n="sec6.how.note">Left: pure noise (step 0). Right: fully denoised image (step 100). Drag the slider or press Play to watch the reverse process.</p>
+              </div>
+            </div>
+            <div class="widget-formula">x<sub>t-1</sub> = denoise_net(x<sub>t</sub>, t) — repeated for t = T…1 until a clean image x₀ emerges</div>
+          </div>
+        </div>
+
+        <div class="learn-subsection">
+          <h3 data-i18n="sec6.used.h3">Where Diffusion Models Are Used</h3>
+          <div class="idea-cards">
+            <div class="idea-card open">
+              <div class="idea-card-head"><span class="idea-badge">1</span><span class="idea-card-title" data-i18n="idea.media.title">Media Generation &amp; Synthesis</span></div>
+              <div class="idea-card-body" style="max-height:220px">
+                <p data-i18n="idea.media.body" data-i18n-html><strong>Text-to-image:</strong> systems like Stable Diffusion and DALL·E turn a written prompt into a novel, realistic image by guiding the denoising process with text embeddings. <strong>Video generation:</strong> the same idea is extended across time, keeping frames temporally consistent to produce moving clips from a prompt.</p>
+              </div>
+            </div>
+            <div class="idea-card open">
+              <div class="idea-card-head"><span class="idea-badge">2</span><span class="idea-card-title" data-i18n="idea.edit.title">Image Editing &amp; Manipulation</span></div>
+              <div class="idea-card-body" style="max-height:200px">
+                <p data-i18n="idea.edit.body" data-i18n-html><strong>Inpainting:</strong> erase part of an image and let the model fill the gap based on surrounding context or a text prompt. <strong>Image-to-image:</strong> start from a sketch or photo and prompt the model to restyle it, change the background, or add detail.</p>
+              </div>
+            </div>
+            <div class="idea-card open">
+              <div class="idea-card-head"><span class="idea-badge">3</span><span class="idea-card-title" data-i18n="idea.audio.title">Audio &amp; Music</span></div>
+              <div class="idea-card-body" style="max-height:160px">
+                <p data-i18n="idea.audio.body">Waveforms (or their spectrograms) are treated like image pixels — diffusion progressively refines noise into high-fidelity speech or music.</p>
+              </div>
+            </div>
+            <div class="idea-card open">
+              <div class="idea-card-head"><span class="idea-badge">4</span><span class="idea-card-title" data-i18n="idea.industry.title">Specialized Industries — incl. Healthcare</span></div>
+              <div class="idea-card-body" style="max-height:240px">
+                <p data-i18n="idea.industry.body" data-i18n-html><strong>Super-resolution:</strong> medical scans (MRI/CT) and surveillance footage are sharpened by diffusion upscalers, revealing detail invisible in the low-resolution input. <strong>Robotics &amp; science:</strong> diffusion models predict complex physical dynamics for robot planning, and synthesize plausible molecular or material structures for drug and materials discovery.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="learn-subsection">
+          <h3 data-i18n="sec6.papers.h3">Selected Diffusion Papers</h3>
+          <div class="task-models">
+            <a class="task-model-tag" href="https://arxiv.org/abs/2006.11239" target="_blank" rel="noopener noreferrer">DDPM (2020)</a>
+            <a class="task-model-tag" href="https://arxiv.org/abs/2112.10752" target="_blank" rel="noopener noreferrer">Latent/Stable Diffusion (2021)</a>
+            <a class="task-model-tag" href="https://arxiv.org/abs/2204.06125" target="_blank" rel="noopener noreferrer">DALL·E 2 (2022)</a>
+            <a class="task-model-tag" href="https://arxiv.org/abs/2205.11487" target="_blank" rel="noopener noreferrer">Imagen (2022)</a>
+            <a class="task-model-tag" href="https://openai.com/index/video-generation-models-as-world-simulators/" target="_blank" rel="noopener noreferrer">Sora tech report (2024)</a>
+          </div>
+        </div>
+      </section>
+
+    </div><!-- /learn-content -->
+  </div><!-- /learn-body -->
+</div><!-- /learn-overlay -->
 
 <div class="main-layout">
   <!-- Left: drawing + prediction -->
@@ -141,5 +558,6 @@
 
 
 <script type="module" src="src/js/main.js"></script>
+<script type="module" src="src/js/learn.js"></script>
 </body>
 </html>

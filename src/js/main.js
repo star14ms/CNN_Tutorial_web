@@ -128,7 +128,7 @@ async function main() {
     statusEl.textContent = 'Draw a digit →';
     $('loading-overlay').style.display = 'none';
 
-    rebuildLayerModal(config);
+    rebuildLayerModal(config, model.torchinfoStats);
     viz.setDatasetConfig(DATASET_CONFIGS[currentDatasetId]);
     viz.setModelConfig(config);
     viz.setParameters(model.parameters);
@@ -159,24 +159,24 @@ async function main() {
     return n.toLocaleString();
   }
 
-  function rebuildLayerModal(config) {
+  function rebuildLayerModal(config, torchinfoStats) {
     // Update header with total param count + torchinfo stats
+    // torchinfoStats (from loaded torchinfo.json) takes priority over config.torchinfo
     const header = $('layer-modal').querySelector('.layer-modal-header');
     if (header) {
-      const total = config.totalParams != null
-        ? ` <span class="lmi-total">${config.totalParams.toLocaleString()} params</span>`
-        : '';
-      let statsHtml = '';
-      if (config.torchinfo) {
-        const t = config.torchinfo;
-        statsHtml = `<div class="lmi-torchinfo">`
-          + (t.multAddsM    != null ? `<span>Mult-Adds: ${t.multAddsM.toFixed(2)} M</span>` : '')
-          + (t.paramsSizeMB != null ? `<span>Params: ${t.paramsSizeMB.toFixed(2)} MB</span>` : '')
-          + (t.fwdBwdSizeMB != null ? `<span>Fwd/Bwd: ${t.fwdBwdSizeMB.toFixed(2)} MB</span>` : '')
-          + (t.totalSizeMB  != null ? `<span>Total: ${t.totalSizeMB.toFixed(2)} MB</span>` : '')
-          + `</div>`;
-      }
-      header.innerHTML = `Layers${total}${statsHtml}`;
+      const ti = torchinfoStats ?? config.torchinfo;
+      const totalParams = (ti?.totalParams ?? config.totalParams);
+      const paramsSpan  = totalParams != null
+        ? `<span class="lmi-total">${totalParams.toLocaleString()} params</span>` : '';
+      const multAddsSpan = ti?.multAddsM != null
+        ? `<span class="lmi-total">(Mult-Adds: ${ti.multAddsM.toFixed(2)} M)</span>` : '';
+      const row2 = ti
+        ? `<div class="lmi-torchinfo">`
+          + (ti.paramsSizeMB != null ? `<span>Params: ${ti.paramsSizeMB.toFixed(2)} MB</span>` : '')
+          + (ti.fwdBwdSizeMB != null ? `<span>Fwd/Bwd: ${ti.fwdBwdSizeMB.toFixed(2)} MB</span>` : '')
+          + (ti.totalSizeMB  != null ? `<span>Total: ${ti.totalSizeMB.toFixed(2)} MB</span>` : '')
+          + `</div>` : '';
+      header.innerHTML = `<div class="lmi-row1">LAYERS ${paramsSpan}${multAddsSpan}</div>${row2}`;
     }
 
     layerModalList.innerHTML = '';

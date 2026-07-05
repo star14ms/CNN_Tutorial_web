@@ -48,6 +48,8 @@ export class ModelInference {
       this.parameters = null;
     }
 
+    await this._loadTorchinfo(`${modelsBase}/torchinfo.json`);
+
     onProgress?.(1, 'Models ready');
     this.ready = true;
   }
@@ -59,6 +61,16 @@ export class ModelInference {
     } catch (e) {
       console.warn('Parameters not loaded:', e);
       this.parameters = null;
+    }
+  }
+
+  async _loadTorchinfo(path) {
+    try {
+      const resp = await fetch(path);
+      if (resp.ok) this.torchinfoStats = await resp.json();
+      else this.torchinfoStats = null;
+    } catch (e) {
+      this.torchinfoStats = null;
     }
   }
 

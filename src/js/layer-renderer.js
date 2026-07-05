@@ -1236,12 +1236,14 @@ export class LayerRenderer {
       C = this._inChannels   ?? def.channels;
       H = this._inputImgSize ?? def.h;
       W = this._inputImgSize ?? def.w;
-    } else if (dims && dims.length >= 4) {
+    } else if (dims && dims.length >= 4 && def.channels > 1) {
+      // Only override spatial dims for multi-channel layers (Conv/Pool).
+      // Flatten reuses the prior layer's 4D tensor but must keep its own 1×W strip layout.
       C = Number(dims[1]); H = Number(dims[2]); W = Number(dims[3]);
-    } else if (dims && dims.length === 3) {
+    } else if (dims && dims.length === 3 && def.channels > 1) {
       C = Number(dims[0]); H = Number(dims[1]); W = Number(dims[2]);
-    } else if (dims && dims.length === 2) {
-      // Output layer: [batch, numClasses] — use actual class count from ONNX
+    } else if (dims && dims.length === 2 && def.channelLabels === '__classes__') {
+      // Output layer only: [batch, numClasses] — use actual class count from ONNX
       C = Number(dims[1]); H = 1; W = 1;
     } else if (def.channelLabels === '__classes__') {
       // Fallback: use dataset class count (e.g. 100 for CIFAR-100)
@@ -1251,9 +1253,12 @@ export class LayerRenderer {
     }
 
     const isOutput = li === this._layerDefs.length - 1;
+    // 1D layers (FC activations, h=1 w=1) render as a single linear row.
+    // Output layer uses a row for ≤20 classes, square grid for larger counts (e.g. CIFAR-100).
+    const is1D = H === 1 && W === 1;
     const { cols, rows } = isOutput
       ? (C <= 20 ? { cols: C, rows: 1 } : gridLayout(C))
-      : gridLayout(C);
+      : (is1D ? { cols: C, rows: 1 } : gridLayout(C));
 
     const pxSz  = isOutput ? OUTPUT_PIXEL_SIZE : PIXEL_SIZE;
     const planeW = pxSz * W;
@@ -1430,7 +1435,7 @@ export class LayerRenderer {
     const v1 = 1 - py / H,  v2 = 1 - (py + 1) / H;
     const lx1 = (u1 - 0.5) * pw, lx2 = (u2 - 0.5) * pw;
     const ly1 = (v1 - 0.5) * ph, ly2 = (v2 - 0.5) * ph;
-    const EPS = 3.0; // large enough to stay above the plane at any zoom
+    const EPS = 0.1; // depthTest:false + renderOrder:999 handle visibility; keep near 0 to avoid parallax offset
     const corners = [
       new THREE.Vector3(lx1, ly1, EPS),
       new THREE.Vector3(lx2, ly1, EPS),
