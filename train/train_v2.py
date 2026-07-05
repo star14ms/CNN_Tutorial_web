@@ -209,17 +209,8 @@ def get_datasets(dataset_id, transform_train, transform_test):
 
 def train(dataset_id='mnist'):
     cfg = DATASET_MAP[dataset_id]
-    if torch.cuda.is_available():
-        device = torch.device('cuda')
-    elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-        device = torch.device('mps')
-    else:
-        device = torch.device('cpu')
+    device, device_str = get_device_with_info()
     print(f'Using device: {device_str}  dataset: {dataset_id}')
-
-    if device.type == 'cuda':
-        torch.backends.cudnn.benchmark = False
-        torch.backends.cudnn.deterministic = True
 
     base_tf = [transforms.ToTensor(), transforms.Normalize(cfg['mean'], cfg['std'])]
     if cfg['in_channels'] == 3:

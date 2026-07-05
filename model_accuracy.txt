@@ -1,0 +1,110 @@
+Dataset: fashion_mnist
+Traceback (most recent call last):
+  File "/Users/minseo/Documents/Github/_star14ms/CNN_Tutorial_web/train/eval_accuracy.py", line 16, in <module>
+    import onnxruntime as ort
+ModuleNotFoundError: No module named 'onnxruntime'
+Traceback (most recent call last):
+  File "/Users/minseo/Documents/Github/_star14ms/CNN_Tutorial_web/train/eval_accuracy.py", line 16, in <module>
+    import onnxruntime as ort
+ModuleNotFoundError: No module named 'onnxruntime'
+Traceback (most recent call last):
+  File "/Users/minseo/Documents/Github/_star14ms/CNN_Tutorial_web/train/eval_accuracy.py", line 16, in <module>
+    import onnxruntime as ort
+ModuleNotFoundError: No module named 'onnxruntime'
+Traceback (most recent call last):
+  File "/Users/minseo/Documents/Github/_star14ms/CNN_Tutorial_web/train/eval_accuracy.py", line 16, in <module>
+    import onnxruntime as ort
+ModuleNotFoundError: No module named 'onnxruntime'
+Traceback (most recent call last):
+  File "/Users/minseo/Documents/Github/_star14ms/CNN_Tutorial_web/train/eval_accuracy.py", line 16, in <module>
+    import onnxruntime as ort
+ModuleNotFoundError: No module named 'onnxruntime'
+
+Dataset: kuzushiji_mnist
+Traceback (most recent call last):
+  File "/Users/minseo/Documents/Github/_star14ms/CNN_Tutorial_web/train/eval_accuracy.py", line 16, in <module>
+    import onnxruntime as ort
+ModuleNotFoundError: No module named 'onnxruntime'
+Traceback (most recent call last):
+  File "/Users/minseo/Documents/Github/_star14ms/CNN_Tutorial_web/train/eval_accuracy.py", line 16, in <module>
+    import onnxruntime as ort
+ModuleNotFoundError: No module named 'onnxruntime'
+Traceback (most recent call last):
+  File "/Users/minseo/Documents/Github/_star14ms/CNN_Tutorial_web/train/eval_accuracy.py", line 16, in <module>
+    import onnxruntime as ort
+ModuleNotFoundError: No module named 'onnxruntime'
+Traceback (most recent call last):
+  File "/Users/minseo/Documents/Github/_star14ms/CNN_Tutorial_web/train/eval_accuracy.py", line 16, in <module>
+    import onnxruntime as ort
+ModuleNotFoundError: No module named 'onnxruntime'
+Traceback (most recent call last):
+  File "/Users/minseo/Documents/Github/_star14ms/CNN_Tutorial_web/train/eval_accuracy.py", line 16, in <module>
+    import onnxruntime as ort
+ModuleNotFoundError: No module named 'onnxruntime'
+
+Dataset: cifar10
+Traceback (most recent call last):
+  File "/Users/minseo/Documents/Github/_star14ms/CNN_Tutorial_web/train/eval_accuracy.py", line 16, in <module>
+    import onnxruntime as ort
+ModuleNotFoundError: No module named 'onnxruntime'
+Traceback (most recent call last):
+  File "/Users/minseo/Documents/Github/_star14ms/CNN_Tutorial_web/train/eval_accuracy.py", line 16, in <module>
+    import onnxruntime as ort
+ModuleNotFoundError: No module named 'onnxruntime'
+Traceback (most recent call last):
+  File "/Users/minseo/Documents/Github/_star14ms/CNN_Tutorial_web/train/eval_accuracy.py", line 16, in <module>
+    import onnxruntime as ort
+ModuleNotFoundError: No module named 'onnxruntime'
+Traceback (most recent call last):
+  File "/Users/minseo/Documents/Github/_star14ms/CNN_Tutorial_web/train/eval_accuracy.py", line 16, in <module>
+    import onnxruntime as ort
+ModuleNotFoundError: No module named 'onnxruntime'
+Traceback (most recent call last):
+  File "/Users/minseo/Documents/Github/_star14ms/CNN_Tutorial_web/train/eval_accuracy.py", line 16, in <module>
+    import onnxruntime as ort
+ModuleNotFoundError: No module named 'onnxruntime'
+
+Dataset: cifar100
+Traceback (most recent call last):
+  File "/Users/minseo/Documents/Github/_star14ms/CNN_Tutorial_web/train/eval_accuracy.py", line 16, in <module>
+    import onnxruntime as ort
+ModuleNotFoundError: No module named 'onnxruntime'
+Traceback (most recent call last):
+  File "/Users/minseo/Documents/Github/_star14ms/CNN_Tutorial_web/train/eval_accuracy.py", line 16, in <module>
+    import onnxruntime as ort
+ModuleNotFoundError: No module named 'onnxruntime'
+Traceback (most recent call last):
+  File "/Users/minseo/Documents/Github/_star14ms/CNN_Tutorial_web/train/eval_accuracy.py", line 16, in <module>
+    import onnxruntime as ort
+ModuleNotFoundError: No module named 'onnxruntime'
+Traceback (most recent call last):
+  File "/Users/minseo/Documents/Github/_star14ms/CNN_Tutorial_web/train/eval_accuracy.py", line 16, in <module>
+    import onnxruntime as ort
+ModuleNotFoundError: No module named 'onnxruntime'
+Traceback (most recent call last):
+  File "/Users/minseo/Documents/Github/_star14ms/CNN_Tutorial_web/train/eval_accuracy.py", line 16, in <module>
+    import onnxruntime as ort
+ModuleNotFoundError: No module named 'onnxruntime'
+
+Dataset: svhn
+Traceback (most recent call last):
+  File "/Users/minseo/Documents/Github/_star14ms/CNN_Tutorial_web/train/eval_accuracy.py", line 16, in <module>
+    import onnxruntime as ort
+ModuleNotFoundError: No module named 'onnxruntime'
+Traceback (most recent call last):
+  File "/Users/minseo/Documents/Github/_star14ms/CNN_Tutorial_web/train/eval_accuracy.py", line 16, in <module>
+    import onnxruntime as ort
+ModuleNotFoundError: No module named 'onnxruntime'
+Traceback (most recent call last):
+  File "/Users/minseo/Documents/Github/_star14ms/CNN_Tutorial_web/train/eval_accuracy.py", line 16, in <module>
+    import onnxruntime as ort
+ModuleNotFoundError: No module named 'onnxruntime'
+Traceback (most recent call last):
+  File "/Users/minseo/Documents/Github/_star14ms/CNN_Tutorial_web/train/eval_accuracy.py", line 16, in <module>
+    import onnxruntime as ort
+ModuleNotFoundError: No module named 'onnxruntime'
+Traceback (most recent call last):
+  File "/Users/minseo/Documents/Github/_star14ms/CNN_Tutorial_web/train/eval_accuracy.py", line 16, in <module>
+    import onnxruntime as ort
+ModuleNotFoundError: No module named 'onnxruntime'
+

@@ -63,33 +63,33 @@ if ! command -v conda &> /dev/null; then
 fi
 
 # Activate conda environment
-log_step "Activating deep-learning environment..."
+log_step "Activating torch environment..."
 source "$(conda info --base)"/etc/profile.d/conda.sh
-conda activate deep-learning || {
-    echo "❌ Failed to activate deep-learning environment"
-    echo "Create it with: conda create -n deep-learning python=3.9 pytorch torchvision torchaudio pytorch-cuda=11.8 -c pytorch -c nvidia"
+conda activate torch || {
+    echo "❌ Failed to activate torch environment"
+    echo "Create it with: conda create -n torch python=3.9 pytorch torchvision torchaudio pytorch-cuda=11.8 -c pytorch -c nvidia"
     exit 1
 }
 
 # All datasets to process
-DATASETS=("mnist" "fashion_mnist" "kuzushiji_mnist" "cifar10" "cifar100" "svhn")
+DATASETS=("fashion_mnist" "kuzushiji_mnist" "cifar10" "cifar100" "svhn")
 
 # All model architectures to train
-MODELS=("linear" "v1" "v1_bn" "v2_small" "v2" "vit")
+MODELS=("linear" "v1" "v1_bn" "v2_small" "v2")
 
-# ============================================================================
-# STEP 1: Export Datasets
-# ============================================================================
-log_section "STEP 1: Exporting Datasets"
+# # ============================================================================
+# # STEP 1: Export Datasets
+# # ============================================================================
+# log_section "STEP 1: Exporting Datasets"
 
-for dataset in "${DATASETS[@]}"; do
-    log_step "Exporting $dataset dataset..."
-    python "${TRAIN_DIR}/export_dataset.py" --dataset "$dataset" || {
-        echo "⚠️  Failed to export $dataset (this is okay if dataset is unavailable)"
-    }
-done
+# for dataset in "${DATASETS[@]}"; do
+#     log_step "Exporting $dataset dataset..."
+#     python "${TRAIN_DIR}/export_dataset.py" --dataset "$dataset" || {
+#         echo "⚠️  Failed to export $dataset (this is okay if dataset is unavailable)"
+#     }
+# done
 
-log_success "Dataset export complete"
+# log_success "Dataset export complete"
 
 # ============================================================================
 # STEP 2: Train Models

@@ -307,7 +307,17 @@ function initIdeaCards() {
   document.querySelectorAll('.idea-card-head').forEach(head => {
     head.addEventListener('click', () => {
       const card = head.parentElement;
-      card.classList.toggle('open');
+      const body = card.querySelector('.idea-card-body');
+
+      if (card.classList.contains('open')) {
+        // Closing: remove inline style to let CSS handle collapse
+        body.style.maxHeight = '';
+        card.classList.remove('open');
+      } else {
+        // Opening: add open class (CSS will expand)
+        card.classList.add('open');
+        body.style.maxHeight = '';
+      }
     });
   });
 }
