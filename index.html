@@ -225,14 +225,22 @@
       <section class="learn-section" id="sec-conv">
         <h2 data-i18n="sec3.title">Convolutional Layer</h2>
         <p class="section-intro" data-i18n="sec3.intro">A convolution slides a small kernel over the input image. At each position it computes a dot product between the kernel weights and the local input patch, writing the result to the output feature map.</p>
+
+        <div class="learn-subsection">
+          <h3 data-i18n="sec3.sp.h3">Stride & Padding</h3>
+          <p class="learn-p" data-i18n="sec3.sp.p1" data-i18n-html>Stride is how many pixels the kernel moves between applications.</p>
+          <p class="learn-p" data-i18n="sec3.sp.p2" data-i18n-html>Padding adds a border of zero-value pixels around the input before sliding the kernel.</p>
+          <p class="learn-p" data-i18n="sec3.sp.p3" data-i18n-html>Output size formula.</p>
+        </div>
+
         <div class="widget-box">
           <div class="widget-title" data-i18n="sec3.widgetTitle">Interactive Kernel Demo</div>
           <div class="widget-row">
-            <div class="widget-col">
+            <div class="widget-col" style="max-width:200px; flex:0 0 auto">
               <div class="widget-label" data-i18n="sec3.inputLabel">Input (click cell to cycle brightness)</div>
               <canvas id="conv-input" class="widget-canvas" width="192" height="192"></canvas>
               <div class="widget-label" style="margin-top:8px" data-i18n="sec3.randomFrom">🎲 Random sample from:</div>
-              <div class="widget-row-btns" id="conv-dataset-btns">
+              <div class="widget-row-btns" id="conv-dataset-btns" style="max-width:200px">
                 <button class="wbtn" data-dataset="mnist">MNIST</button>
                 <button class="wbtn" data-dataset="fashion_mnist">Fashion</button>
                 <button class="wbtn" data-dataset="kuzushiji_mnist">Kuzushiji</button>
@@ -249,10 +257,10 @@
               </select>
               <div class="mlp-note" id="conv-input-status">Pattern: Checkerboard</div>
             </div>
-            <div class="widget-col">
+            <div class="widget-col" style="max-width:180px; flex:0 0 auto">
               <div class="widget-label" data-i18n="sec3.kernelLabel">Kernel (click cell to edit)</div>
               <canvas id="conv-kernel" class="widget-canvas" width="108" height="108"></canvas>
-              <div class="widget-row-btns">
+              <div class="widget-row-btns" style="max-width:180px">
                 <button class="wbtn wactive" data-kernel="edgeTop" data-i18n="sec3.kernelEdgeTop">Edge ↑</button>
                 <button class="wbtn" data-kernel="edgeBottom" data-i18n="sec3.kernelEdgeBottom">Edge ↓</button>
                 <button class="wbtn" data-kernel="edgeLeft" data-i18n="sec3.kernelEdgeLeft">Edge ←</button>
@@ -266,7 +274,7 @@
                 <button class="wbtn" data-kernel="custom" data-i18n="sec3.kernelCustom">Custom</button>
               </div>
             </div>
-            <div class="widget-col">
+            <div class="widget-col" style="max-width:200px; flex:0 0 auto">
               <div class="widget-label" data-i18n="sec3.outputLabel">Output</div>
               <canvas id="conv-output" class="widget-canvas" width="192" height="192"></canvas>
             </div>

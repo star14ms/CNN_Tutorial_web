@@ -683,10 +683,11 @@ header .subtitle { font-size: 0.78rem; color: var(--muted); }
 .task-card-chevron { margin-left: auto; color: var(--muted); font-size: 0.75rem; transition: transform 0.25s; }
 .task-card.expanded .task-card-chevron { transform: rotate(180deg); }
 .task-card-body {
-  max-height: 0; overflow: hidden;
-  transition: max-height 0.35s ease; padding: 0 20px;
+  max-height: 0; overflow: hidden; padding: 0 20px;
+  border-top: 1px solid transparent;
+  transition: max-height 0.35s ease, padding 0.35s ease, border-color 0.35s ease;
 }
-.task-card.expanded .task-card-body { max-height: 700px; padding: 16px 20px; border-top: 1px solid var(--border); }
+.task-card.expanded .task-card-body { max-height: 700px; padding: 16px 20px; border-top-color: var(--border); }
 .task-card-body p { font-size: 0.84rem; color: var(--muted); line-height: 1.7; margin-bottom: 10px; }
 .task-models { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .task-model-tag {
@@ -704,7 +705,10 @@ header .subtitle { font-size: 0.78rem; color: var(--muted); }
 .idea-card-head:hover { background: rgba(255,255,255,0.03); }
 .idea-badge { background: var(--accent); color: #fff; font-size: 0.7rem; padding: 2px 8px; border-radius: 10px; }
 .idea-card-title { font-size: 0.9rem; color: var(--text); font-weight: 500; }
-.idea-card-body { max-height: 0; overflow: hidden; transition: max-height 0.3s ease; padding: 0 16px; }
+.idea-card-body {
+  max-height: 0; overflow: hidden; padding: 0 16px;
+  transition: max-height 0.3s ease, padding 0.3s ease;
+}
 .idea-card.open .idea-card-body { max-height: 200px; padding: 12px 16px; }
 .idea-card-body p { font-size: 0.83rem; color: var(--muted); line-height: 1.7; }
 .idea-illustration { width: 100%; max-width: 320px; height: auto; display: block; margin: 10px 0 6px; }

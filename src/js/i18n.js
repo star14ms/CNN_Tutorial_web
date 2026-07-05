@@ -126,6 +126,19 @@ const DICT = {
     en: 'A convolution slides a small kernel over the input image. At each position it computes a dot product between the kernel weights and the local input patch, writing the result to the output feature map.',
     ko: '합성곱은 작은 커널을 입력 이미지 위로 슬라이딩합니다. 각 위치에서 커널 가중치와 지역 입력 패치 간의 내적을 계산하여 결과를 출력 특징 맵에 기록합니다.',
   },
+  'sec3.sp.h3': { en: 'Stride & Padding', ko: '스트라이드와 패딩' },
+  'sec3.sp.p1': {
+    en: '<strong>Stride</strong> is how many pixels the kernel moves between applications. Stride 1 slides across every position, producing a dense output the size of the input (minus the kernel\'s edge). Stride 2 skips every other position, halving the output resolution roughly — a cheap way to downsample while convolving.',
+    ko: '<strong>스트라이드</strong>는 커널이 한 번에 이동하는 픽셀 수입니다. 스트라이드 1은 모든 위치를 거치며 입력과 거의 같은 크기의 조밀한 출력을 만듭니다. 스트라이드 2는 한 칸씩 건너뛰어 출력 해상도를 대략 절반으로 줄이는, 합성곱과 동시에 다운샘플링하는 저렴한 방법입니다.',
+  },
+  'sec3.sp.p2': {
+    en: '<strong>Padding</strong> adds a border of zero-value pixels around the input before sliding the kernel. With <strong>no padding</strong> ("valid"), the kernel can never be centered on a border pixel, so each side shrinks by half the kernel size — a 3×3 kernel loses 1 pixel per side. <strong>"Same" padding</strong> adds exactly enough zero border (⌊kernel size / 2⌋ — 1 pixel for a 3×3 kernel) so that, at stride 1, the output is the <em>same size</em> as the input. This matters when stacking many conv layers: without it, the feature map keeps shrinking and eventually vanishes.',
+    ko: '<strong>패딩</strong>은 커널을 슬라이딩하기 전에 입력 주위에 0 값의 테두리를 추가하는 것입니다. <strong>패딩이 없으면</strong>("valid") 커널이 테두리 픽셀에 중심을 둘 수 없으므로 각 변이 커널 크기의 절반만큼 줄어듭니다 — 3×3 커널은 각 변에서 1픽셀씩 줄어듭니다. <strong>"Same" 패딩</strong>은 정확히 그만큼(3×3 커널 기준 1픽셀, 즉 ⌊커널 크기 / 2⌋)의 0 테두리를 추가하여, 스트라이드 1일 때 출력 크기가 입력과 <em>동일한 크기</em>가 되도록 합니다. 이는 합성곱 층을 여러 겹 쌓을 때 중요합니다 — 패딩이 없으면 특징 맵이 계속 줄어들다 결국 사라지기 때문입니다.',
+  },
+  'sec3.sp.p3': {
+    en: 'Output size formula: <code>output = ⌊(input + 2·padding − kernel) / stride⌋ + 1</code>. Try it below — the pink dashed border on the input shows the padding cells, and the formula under the demo updates live.',
+    ko: '출력 크기 공식: <code>output = ⌊(input + 2·padding − kernel) / stride⌋ + 1</code>. 아래에서 직접 확인해보세요 — 입력 이미지의 분홍색 점선 테두리가 패딩 셀을 나타내며, 데모 아래의 공식이 실시간으로 갱신됩니다.',
+  },
   'sec3.widgetTitle': { en: 'Interactive Kernel Demo', ko: '대화형 커널 데모' },
   'sec3.inputLabel': { en: 'Input (click cell to cycle brightness)', ko: '입력 (셀을 클릭하면 밝기가 순환합니다)' },
   'sec3.randomFrom': { en: '🎲 Random sample from:', ko: '🎲 무작위 샘플 가져오기:' },
@@ -134,6 +147,7 @@ const DICT = {
   'sec3.patternGradient': { en: 'Gradient', ko: '그라데이션' },
   'sec3.patternCross': { en: 'Cross', ko: '십자 모양' },
   'sec3.patternNoise': { en: 'Random Noise', ko: '무작위 노이즈' },
+  'sec3.patternCustom': { en: 'Custom (hand-edited)', ko: '사용자 지정 (직접 편집)' },
   'sec3.kernelLabel': { en: 'Kernel (click cell to edit)', ko: '커널 (셀을 클릭해 값을 수정하세요)' },
   'sec3.kernelEdgeTop': { en: 'Edge ↑', ko: '에지 ↑' },
   'sec3.kernelEdgeBottom': { en: 'Edge ↓', ko: '에지 ↓' },

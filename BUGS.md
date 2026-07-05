@@ -143,3 +143,25 @@ Claude should **append new entries** whenever the user reports a bug or misimple
 **Root cause:** `GridHelper(6000, 120, 0x222244, 0x1a1a33)` — the grid color `0x1a1a33` is nearly identical to the scene background `0x1a1a2e`. At 120 divisions the grid appeared as a dark haze with no discernible individual lines. The user intended visible bright blue structural lines.
 **Fix:** `GridHelper(6000, 20, 0x334488, 0x334488)` — both center-line and grid-line colors set to the same visible blue; divisions reduced to 20 so each line is clearly distinct.
 **Prevention:** Grid colors must contrast with the scene background. Both `colorCenterLine` and `colorGrid` must be set intentionally; defaulting one to near-background color defeats the purpose. Use divisions ≤ 20 for legible individual lines.
+
+---
+
+### B-18: Learn page dropdown collapse — instant jump then shrink
+**Reported:** Session 4 (Learn Center)
+**Root cause:** `.task-card-body` and `.idea-card-body` in `style.css` only declared `transition: max-height ...`, while `padding` (and `border-top-color` for task cards) changed instantly with no transition. On collapse, padding/border snapped to their closed values immediately, then max-height animated separately afterward — visually a jump followed by a shrink instead of one continuous motion.
+**Fix:** Added `padding` and `border-color` to the same `transition` declaration as `max-height` on both `.task-card-body` and `.idea-card-body`, so all three animate in sync.
+**Prevention:** When an expand/collapse effect changes multiple CSS properties (max-height, padding, border, etc.), all of them must share one `transition` list. Animating only one property while others change instantly always produces a visible jump.
+
+---
+
+### B-19: Conv widget — Pause button stops working after animation plays to completion
+**Reported:** Session 4 (Learn Center)
+**Root cause:** In `initConvWidget`'s `stepAnim` (`learn.js`), the branch that runs when the sliding-kernel animation reaches its last position set `playing = false` and reset the button text, but never called `clearInterval(animTimer)`. The `setInterval` timer kept firing forever in the background. The next "Play" click saw `playing === false` and started a *second* `setInterval`, overwriting the `animTimer` reference — so "Pause" could only ever cancel the newest interval, leaving the original one running uncontrollably and making the animation look stuck/unpausable.
+**Fix:** Added `clearInterval(animTimer)` to the completion branch of `stepAnim` so the timer is always torn down when the animation finishes naturally, matching what the manual pause/reset handlers already did.
+**Prevention:** Any code path that sets a "not running" flag (`playing = false`) must also clear the corresponding timer in the same place — never let a flag and its timer's lifetime drift apart. Whenever `setInterval` is reassigned to a variable, everything that changes that variable's target must clear the previous one first.
+
+### B-20: Conv widget — dataset image status reverts to synthetic pattern text on language switch
+**Reported:** Session 4 (Learn Center)
+**Root cause:** `initConvWidget`'s `onLanguageChange` callback and the initial status line were hardcoded to `tf('conv.statusPattern', { name: t('sec3.patternCheckerboard') })` regardless of what was actually loaded. After loading a random dataset image, the status text was correct until the user switched languages (or the callback ran for any reason) — at which point it snapped back to "Pattern: Checkerboard" even though the input canvas still showed the real dataset image, making it look like the dataset image "wasn't applied."
+**Fix:** Added a `currentSource` state object (`{type: 'pattern'|'dataset', ...}`) updated by every input-changing action (pixel edit, pattern dropdown, dataset load), and a single `updateStatusText()` that renders the correct status from `currentSource`. `onLanguageChange` now calls `updateStatusText()` instead of a hardcoded string. Also added a missing `sec3.patternCustom` i18n key for the hand-edited-pixel case.
+**Prevention:** Never hardcode a UI-refresh callback (like a language-change listener) to a fixed default string — derive it from actual current state, or any refresh triggered by an unrelated event will silently overwrite genuine state with a stale default.

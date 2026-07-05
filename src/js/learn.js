@@ -492,6 +492,20 @@ function initConvWidget() {
   let animTimer = null;
   let playing = false;
   let currentKernelName = 'edgeTop';
+  // Tracks which input source is currently active, so the status text (and any
+  // re-render triggered by a language switch) always reflects reality instead of
+  // being hardcoded back to the initial pattern.
+  let currentSource = { type: 'pattern', name: 'checkerboard' };
+
+  function updateStatusText() {
+    if (currentSource.type === 'dataset') {
+      statusEl.textContent = tf('conv.statusLoaded', {
+        name: DATASET_LABELS[currentSource.datasetId], idx: currentSource.idx, label: currentSource.label,
+      });
+    } else {
+      statusEl.textContent = tf('conv.statusPattern', { name: t(`sec3.pattern${currentSource.name[0].toUpperCase()}${currentSource.name.slice(1)}`) });
+    }
+  }
 
   function setGrid(newGrid, data) {
     GRID = newGrid;
@@ -524,30 +538,61 @@ function initConvWidget() {
     return out;
   }
 
+  // With padding, the canvas shows GRID + 2*p cells per side: a border of
+  // synthetic "0" padding cells around the real input, so the effect of
+  // padding is visible instead of purely implicit in the math.
+  function getTotalCells() { return GRID + 2 * getPad(); }
+
   function drawInput() {
     const s = getStride(), p = getPad();
+    const total = getTotalCells();
+    CELL_I = inputCanvas.width / total;
     // Fill the whole canvas first — with non-integer cell sizes (e.g. 192/28 ≈ 6.86px),
     // rounding leaves thin gaps between cells that would otherwise still show pixels
     // from whatever was previously drawn (a different pattern/image at a different
     // resolution), looking like the two inputs are merged together.
     iCtx.fillStyle = '#0a0a14';
     iCtx.fillRect(0, 0, inputCanvas.width, inputCanvas.height);
+    // padding border cells (drawn first, underneath the real cells)
+    if (p > 0) {
+      iCtx.save();
+      iCtx.fillStyle = 'rgba(233,69,96,0.12)';
+      iCtx.strokeStyle = 'rgba(233,69,96,0.5)';
+      iCtx.setLineDash([3, 2]);
+      for (let tr = 0; tr < total; tr++) {
+        for (let tc = 0; tc < total; tc++) {
+          const isPadCell = tr < p || tr >= GRID + p || tc < p || tc >= GRID + p;
+          if (!isPadCell) continue;
+          iCtx.fillRect(tc * CELL_I + 1, tr * CELL_I + 1, CELL_I - 2, CELL_I - 2);
+          iCtx.strokeRect(tc * CELL_I + 1.5, tr * CELL_I + 1.5, CELL_I - 3, CELL_I - 3);
+        }
+      }
+      iCtx.restore();
+    }
     for (let r = 0; r < GRID; r++) {
       for (let c = 0; c < GRID; c++) {
         const bright = Math.round(clamp(inputGrid[r][c], 0, 1) * 255);
         iCtx.fillStyle = `rgb(${bright},${bright},${bright})`;
-        iCtx.fillRect(c * CELL_I + 1, r * CELL_I + 1, CELL_I - 2, CELL_I - 2);
+        iCtx.fillRect((c + p) * CELL_I + 1, (r + p) * CELL_I + 1, CELL_I - 2, CELL_I - 2);
       }
     }
-    iCtx.strokeStyle = GRID > 12 ? 'rgba(42,42,74,0.35)' : '#2a2a4a';
+    iCtx.strokeStyle = total > 14 ? 'rgba(42,42,74,0.35)' : '#2a2a4a';
     iCtx.lineWidth = 1;
-    for (let i = 0; i <= GRID; i++) {
+    for (let i = 0; i <= total; i++) {
       iCtx.beginPath(); iCtx.moveTo(i * CELL_I, 0); iCtx.lineTo(i * CELL_I, inputCanvas.height); iCtx.stroke();
       iCtx.beginPath(); iCtx.moveTo(0, i * CELL_I); iCtx.lineTo(inputCanvas.width, i * CELL_I); iCtx.stroke();
     }
+    // A thicker line separates the real input from the zero-padding border.
+    if (p > 0) {
+      iCtx.strokeStyle = 'rgba(233,69,96,0.6)';
+      iCtx.lineWidth = 2;
+      iCtx.strokeRect(p * CELL_I, p * CELL_I, GRID * CELL_I, GRID * CELL_I);
+    }
     if (animPos) {
       const { r, c } = animPos;
-      const x = (c * s - p) * CELL_I, y = (r * s - p) * CELL_I;
+      // The kernel window starts at (r*s, c*s) in this padded coordinate space —
+      // no extra "-p" offset needed since padding cells already occupy the border.
+      const x = c * s * CELL_I, y = r * s * CELL_I;
       iCtx.strokeStyle = '#f0c040';
       iCtx.lineWidth = 2.5;
       iCtx.strokeRect(x + 1, y + 1, CELL_I * 3 - 2, CELL_I * 3 - 2);
@@ -618,11 +663,16 @@ function initConvWidget() {
   // input click — cycle brightness in steps of 0.2
   inputCanvas.addEventListener('click', e => {
     const rect = inputCanvas.getBoundingClientRect();
-    const c = Math.floor((e.clientX - rect.left) / rect.width * GRID);
-    const r = Math.floor((e.clientY - rect.top) / rect.height * GRID);
+    const p = getPad(), total = getTotalCells();
+    // Coordinates are in the padded visual grid — subtract p to land on the real
+    // (editable) cells; clicks that land on the zero-padding border are ignored.
+    const c = Math.floor((e.clientX - rect.left) / rect.width * total) - p;
+    const r = Math.floor((e.clientY - rect.top) / rect.height * total) - p;
     if (r >= 0 && r < GRID && c >= 0 && c < GRID) {
       inputGrid[r][c] = ((Math.round(inputGrid[r][c] * 5) + 1) % 6) / 5;
       presetEl.value = '';
+      currentSource = { type: 'pattern', name: 'custom' };
+      updateStatusText();
       redraw();
     }
   });
@@ -632,7 +682,8 @@ function initConvWidget() {
     const val = presetEl.value;
     if (CONV_PATTERNS[val]) {
       setGrid(DEMO_GRID, CONV_PATTERNS[val](DEMO_GRID));
-      statusEl.textContent = tf('conv.statusPattern', { name: presetEl.options[presetEl.selectedIndex].textContent });
+      currentSource = { type: 'pattern', name: val };
+      updateStatusText();
     }
   });
 
@@ -641,7 +692,7 @@ function initConvWidget() {
     btn.addEventListener('click', async () => {
       const datasetId = btn.dataset.dataset;
       btn.disabled = true;
-      const prevText = statusEl.textContent;
+      const prevSource = currentSource;
       statusEl.textContent = tf('conv.statusLoading', { name: DATASET_LABELS[datasetId] });
       try {
         const cfg = DATASET_CONFIGS[datasetId];
@@ -650,12 +701,16 @@ function initConvWidget() {
         const { pixels, size, channels } = await fetchDatasetImage(datasetId, idx);
         const grid = toGrayscaleGrid(pixels, size, channels);
         setGrid(size, grid);
+        // A dataset image is now the active input — deselect the synthetic-pattern
+        // dropdown (back to its placeholder) so it can't be mistaken for the current source.
         presetEl.value = '';
         const className = cfg.classLabels ? cfg.classLabels[labels[idx]] : labels[idx];
-        statusEl.textContent = tf('conv.statusLoaded', { name: DATASET_LABELS[datasetId], idx, label: className });
+        currentSource = { type: 'dataset', datasetId, idx, label: className };
+        updateStatusText();
       } catch (err) {
         console.error(`Failed to load ${datasetId} sample:`, err);
-        statusEl.textContent = prevText;
+        currentSource = prevSource;
+        updateStatusText();
       } finally {
         btn.disabled = false;
       }
@@ -702,7 +757,17 @@ function initConvWidget() {
   let animIdx = 0;
   function stepAnim() {
     const positions = getPositions();
-    if (animIdx >= positions.length) { animIdx = 0; animPos = null; redraw(); playing = false; document.getElementById('conv-play').textContent = t('sec3.play'); return; }
+    if (animIdx >= positions.length) {
+      // Animation reached the end — stop the interval. Forgetting this left the
+      // timer running forever in the background (with `playing` already false),
+      // so a later "Play" click would spawn a second interval on top of it and
+      // "Pause" could only ever cancel the newest one, making the animation look
+      // stuck/unpausable.
+      clearInterval(animTimer);
+      animIdx = 0; animPos = null; redraw(); playing = false;
+      document.getElementById('conv-play').textContent = t('sec3.play');
+      return;
+    }
     animPos = positions[animIdx++];
     redraw();
   }
@@ -717,10 +782,8 @@ function initConvWidget() {
     document.getElementById('conv-play').textContent = t('sec3.play'); redraw();
   });
 
-  onLanguageChange(() => {
-    statusEl.textContent = tf('conv.statusPattern', { name: t('sec3.patternCheckerboard') });
-  });
-  statusEl.textContent = tf('conv.statusPattern', { name: t('sec3.patternCheckerboard') });
+  onLanguageChange(updateStatusText);
+  updateStatusText();
   redraw();
 }
 
