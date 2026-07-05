@@ -332,24 +332,7 @@ function initIdeaCards() {
   document.querySelectorAll('.idea-card-head').forEach(head => {
     head.addEventListener('click', () => {
       const card = head.parentElement;
-      const body = card.querySelector('.idea-card-body');
-      const isOpening = !card.classList.contains('open');
-
-      if (isOpening) {
-        // Measure height before applying open class (no transition yet)
-        body.style.maxHeight = 'none';
-        const h = body.scrollHeight;
-        body.style.maxHeight = '0px';
-        // Force layout to ensure transition will work from 0 to h
-        void body.offsetHeight;
-        // Now apply the open class and animate to final height
-        card.classList.add('open');
-        body.style.maxHeight = `${h}px`;
-      } else {
-        // Closing: collapse back to 0
-        body.style.maxHeight = '0px';
-        card.classList.remove('open');
-      }
+      card.classList.toggle('open');
     });
   });
 }
@@ -514,6 +497,7 @@ function initConvWidget() {
     CELL_I = inputCanvas.width / GRID;
     inputGrid = data;
     animPos = null;
+    console.log(`[Conv] setGrid called: GRID=${GRID}, CELL_I=${CELL_I.toFixed(2)}, data size=${data.length}x${data[0]?.length || 0}`);
     redraw();
   }
 
@@ -546,15 +530,15 @@ function initConvWidget() {
   function getTotalCells() { return GRID + 2 * getPad(); }
 
   function drawInput() {
-    const s = getStride(), p = getPad();
-    const total = getTotalCells();
-    CELL_I = inputCanvas.width / total;
-    // Fill the whole canvas first — with non-integer cell sizes (e.g. 192/28 ≈ 6.86px),
-    // rounding leaves thin gaps between cells that would otherwise still show pixels
-    // from whatever was previously drawn (a different pattern/image at a different
-    // resolution), looking like the two inputs are merged together.
-    iCtx.fillStyle = '#0a0a14';
-    iCtx.fillRect(0, 0, inputCanvas.width, inputCanvas.height);
+    try {
+      const s = getStride(), p = getPad();
+      const total = getTotalCells();
+      CELL_I = inputCanvas.width / total;
+      console.log(`[Conv] drawInput: GRID=${GRID}, stride=${s}, pad=${p}, total=${total}, CELL_I=${CELL_I.toFixed(2)}`);
+
+      // Fill the whole canvas first
+      iCtx.fillStyle = '#0a0a14';
+      iCtx.fillRect(0, 0, inputCanvas.width, inputCanvas.height);
     // padding border cells (drawn first, underneath the real cells)
     if (p > 0) {
       iCtx.save();
@@ -578,26 +562,28 @@ function initConvWidget() {
         iCtx.fillRect((c + p) * CELL_I + 1, (r + p) * CELL_I + 1, CELL_I - 2, CELL_I - 2);
       }
     }
-    iCtx.strokeStyle = total > 14 ? 'rgba(42,42,74,0.35)' : '#2a2a4a';
-    iCtx.lineWidth = 1;
-    for (let i = 0; i <= total; i++) {
-      iCtx.beginPath(); iCtx.moveTo(i * CELL_I, 0); iCtx.lineTo(i * CELL_I, inputCanvas.height); iCtx.stroke();
-      iCtx.beginPath(); iCtx.moveTo(0, i * CELL_I); iCtx.lineTo(inputCanvas.width, i * CELL_I); iCtx.stroke();
-    }
-    // A thicker line separates the real input from the zero-padding border.
-    if (p > 0) {
-      iCtx.strokeStyle = 'rgba(233,69,96,0.6)';
-      iCtx.lineWidth = 2;
-      iCtx.strokeRect(p * CELL_I, p * CELL_I, GRID * CELL_I, GRID * CELL_I);
-    }
-    if (animPos) {
-      const { r, c } = animPos;
-      // The kernel window starts at (r*s, c*s) in this padded coordinate space —
-      // no extra "-p" offset needed since padding cells already occupy the border.
-      const x = c * s * CELL_I, y = r * s * CELL_I;
-      iCtx.strokeStyle = '#f0c040';
-      iCtx.lineWidth = 2.5;
-      iCtx.strokeRect(x + 1, y + 1, CELL_I * 3 - 2, CELL_I * 3 - 2);
+      iCtx.strokeStyle = total > 14 ? 'rgba(42,42,74,0.35)' : '#2a2a4a';
+      iCtx.lineWidth = 1;
+      for (let i = 0; i <= total; i++) {
+        iCtx.beginPath(); iCtx.moveTo(i * CELL_I, 0); iCtx.lineTo(i * CELL_I, inputCanvas.height); iCtx.stroke();
+        iCtx.beginPath(); iCtx.moveTo(0, i * CELL_I); iCtx.lineTo(inputCanvas.width, i * CELL_I); iCtx.stroke();
+      }
+      // A thicker line separates the real input from the zero-padding border.
+      if (p > 0) {
+        iCtx.strokeStyle = 'rgba(233,69,96,0.6)';
+        iCtx.lineWidth = 2;
+        iCtx.strokeRect(p * CELL_I, p * CELL_I, GRID * CELL_I, GRID * CELL_I);
+      }
+      if (animPos) {
+        const { r, c } = animPos;
+        const x = c * s * CELL_I, y = r * s * CELL_I;
+        iCtx.strokeStyle = '#f0c040';
+        iCtx.lineWidth = 2.5;
+        iCtx.strokeRect(x + 1, y + 1, CELL_I * 3 - 2, CELL_I * 3 - 2);
+      }
+      console.log(`[Conv] drawInput completed`);
+    } catch (err) {
+      console.error(`[Conv] drawInput error:`, err);
     }
   }
 

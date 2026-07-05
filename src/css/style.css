@@ -707,9 +707,9 @@ header .subtitle { font-size: 0.78rem; color: var(--muted); }
 .idea-card-title { font-size: 0.9rem; color: var(--text); font-weight: 500; }
 .idea-card-body {
   max-height: 0; overflow: hidden; padding: 0 16px;
-  transition: max-height 0.3s ease, padding 0.3s ease;
+  transition: max-height 0.35s ease, padding 0.35s ease;
 }
-.idea-card.open .idea-card-body { padding: 12px 16px; }
+.idea-card.open .idea-card-body { max-height: 2000px; padding: 12px 16px; }
 .idea-card-body p { font-size: 0.83rem; color: var(--muted); line-height: 1.7; }
 .idea-illustration { width: 100%; max-width: 500px; height: auto; display: block; margin: 10px 0 6px; }
 
