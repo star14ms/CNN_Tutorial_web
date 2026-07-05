@@ -1,7 +1,39 @@
+# Training and data files not needed for deployment
 train/
-public/data/cifar10/train_images.bin
-public/data/cifar10/train_labels.bin
-public/data/cifar100/train_images.bin
-public/data/cifar100/train_labels.bin
-public/data/svhn/train_images.bin
-public/data/svhn/train_labels.bin
+public/data/
+
+# Python files and caches
+*.py
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.env
+.env.local
+
+# Development files
+.git
+.gitignore
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Documentation
+README.md
+CLAUDE.md
+BUGS.md
+setup_assets.sh
+
+# Shell scripts
+*.sh
+
+# Temporary files
+.DS_Store
+*.swp
+*.swo
+*~
+
+# IDE settings
+.vscode/
+.idea/
+*.sublime-workspace
