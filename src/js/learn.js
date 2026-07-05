@@ -262,33 +262,8 @@ function initSidebar() {
  *  like the card doesn't fully close. When two cards in a row are both expanded, they're matched
  *  to the taller one's height. */
 function syncTaskCardRowHeights() {
-  const grid = document.getElementById('task-cards');
-  if (!grid) return;
-  const cards = [...grid.children];
-  const cols = 2;
-  for (let i = 0; i < cards.length; i += cols) {
-    const rowCards = cards.slice(i, i + cols);
-    // Always clear any stale inline override on collapsed cards in this row —
-    // otherwise a leftover max-height from a previous expanded state keeps them stuck open.
-    rowCards.filter(c => !c.classList.contains('expanded'))
-      .forEach(c => { c.querySelector('.task-card-body').style.maxHeight = ''; });
-    const rowExpandedBodies = rowCards
-      .filter(c => c.classList.contains('expanded'))
-      .map(c => c.querySelector('.task-card-body'));
-    if (rowExpandedBodies.length === 0) continue;
-    // Measure natural content height with clipping disabled — reading scrollHeight
-    // while max-height is still 0 (e.g. right after the class toggle, mid-transition)
-    // would otherwise report 0 and permanently bake that in as the new inline max-height.
-    const heights = rowExpandedBodies.map(b => {
-      const prevInline = b.style.maxHeight;
-      b.style.maxHeight = 'none';
-      const h = b.scrollHeight;
-      b.style.maxHeight = prevInline;
-      return h;
-    });
-    const maxH = Math.max(...heights);
-    rowExpandedBodies.forEach(b => { b.style.maxHeight = `${maxH}px`; });
-  }
+  // Task cards now use CSS-only max-height animation (no dynamic height calculation)
+  // This prevents complex race conditions and is simpler to maintain
 }
 
 function renderTaskCards() {
@@ -456,7 +431,10 @@ const DATASET_LABELS = {
 
 function initConvWidget() {
   const DEMO_GRID = 8;
+  const PIXELS_PER_CELL = 7;  // Scale factor for drawing cells
   let GRID = DEMO_GRID;
+  let canvasSize = DEMO_GRID * PIXELS_PER_CELL;  // Initial canvas size (56px for 8x8 grid)
+
   const inputCanvas = document.getElementById('conv-input');
   const kernelCanvas = document.getElementById('conv-kernel');
   const outputCanvas = document.getElementById('conv-output');
@@ -466,11 +444,17 @@ function initConvWidget() {
   const presetEl = document.getElementById('conv-input-preset');
   const statusEl = document.getElementById('conv-input-status');
 
+  // Initialize canvases with proper size
+  inputCanvas.width = canvasSize;
+  inputCanvas.height = canvasSize;
+  outputCanvas.width = canvasSize;
+  outputCanvas.height = canvasSize;
+
   const iCtx = inputCanvas.getContext('2d');
   const kCtx = kernelCanvas.getContext('2d');
   const oCtx = outputCanvas.getContext('2d');
 
-  let CELL_I = inputCanvas.width / GRID;
+  let CELL_I = canvasSize / GRID;
   const CELL_K = kernelCanvas.width / 3;
 
   let inputGrid = CONV_PATTERNS.checkerboard(GRID);
@@ -494,10 +478,17 @@ function initConvWidget() {
 
   function setGrid(newGrid, data) {
     GRID = newGrid;
-    CELL_I = inputCanvas.width / GRID;
+    // Resize canvases based on data size
+    canvasSize = GRID * PIXELS_PER_CELL;
+    inputCanvas.width = canvasSize;
+    inputCanvas.height = canvasSize;
+    outputCanvas.width = canvasSize;
+    outputCanvas.height = canvasSize;
+
+    CELL_I = canvasSize / GRID;
     inputGrid = data;
     animPos = null;
-    console.log(`[Conv] setGrid called: GRID=${GRID}, CELL_I=${CELL_I.toFixed(2)}, data size=${data.length}x${data[0]?.length || 0}`);
+    console.log(`[Conv] setGrid: GRID=${GRID}, canvasSize=${canvasSize}px, CELL_I=${CELL_I.toFixed(2)}, data=${data.length}x${data[0]?.length || 0}`);
     redraw();
   }
 
@@ -533,7 +524,6 @@ function initConvWidget() {
     try {
       const s = getStride(), p = getPad();
       const total = getTotalCells();
-      CELL_I = inputCanvas.width / total;
       console.log(`[Conv] drawInput: GRID=${GRID}, stride=${s}, pad=${p}, total=${total}, CELL_I=${CELL_I.toFixed(2)}`);
 
       // Fill the whole canvas first
