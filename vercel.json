@@ -1,8 +1,6 @@
 {
-  "projectId": "",
   "name": "cnn-tutorial-web",
   "buildCommand": "",
-  "outputDirectory": "public",
   "env": {},
   "git": {
     "deploymentEnabled": {
@@ -13,7 +11,7 @@
   "rewrites": [
     {
       "source": "/(.*)",
-      "destination": "/$1"
+      "destination": "/index.html"
     }
   ],
   "headers": [
