@@ -17,3 +17,4 @@ Thumbs.db
 # models
 public/models/
 .vercel
+.env*
